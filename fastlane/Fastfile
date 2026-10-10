@@ -60,7 +60,14 @@ platform :ios do
       path: "#{GITHUB_WORKSPACE}/swift_space/BlazePodPOC.xcodeproj",
       profile_name: mapping[APP_IDENTIFIER],
       code_sign_identity: "iPhone Distribution",
+      bundle_identifier: APP_IDENTIFIER,
       targets: ["BlazePodPOC"]
+    )
+
+    update_app_identifier(
+      xcodeproj: "#{GITHUB_WORKSPACE}/swift_space/BlazePodPOC.xcodeproj",
+      plist_path: "Info.plist",
+      app_identifier: APP_IDENTIFIER
     )
 
     gym(
