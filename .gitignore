@@ -1,3 +1,15 @@
 .logs/
 *.nfs*
 .DS_Store
+.abacus.donotdelete
+.project_instructions.md
+swift_space/.abacus_capabilities.json
+swift_space/.gitignore
+swift_space/Config.xcconfig
+swift_space/Sources/API/
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+fastlane/report.xml
+fastlane/test_output/
