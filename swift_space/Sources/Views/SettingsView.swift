@@ -200,16 +200,29 @@ struct SettingsView: View {
                     Text(connectedPod?.connectionState.rawValue ?? "Not connected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let serial = saved.serialNumber, !serial.isEmpty {
+                    if let serial = connectedPod?.bleSerialNumber, !serial.isEmpty {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Text("S/N \(serial)")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
+                            .monospaced()
                     }
                 }
             }
             Spacer()
+            // Battery indicator
+            if let pod = connectedPod, let level = pod.batteryLevel {
+                HStack(spacing: 2) {
+                    Image(systemName: pod.batteryIconName)
+                        .foregroundStyle(pod.batteryColor)
+                        .font(.caption)
+                    Text("\(level)%")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
             Image(systemName: "chevron.right")
                 .foregroundStyle(.tertiary)
                 .font(.caption)

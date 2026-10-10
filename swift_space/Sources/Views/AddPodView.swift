@@ -31,10 +31,13 @@ class AddPodCoordinator {
         }
     }
 
+    var onAccepted: (() -> Void)?
+
     func acceptPod() {
         identifyTask?.cancel()
         identifyTask = nil
         phase = .configuring
+        onAccepted?()
     }
 
     func cleanup() {
@@ -273,6 +276,11 @@ struct AddPodView: View {
 
     private func startIdentification() {
         coordinator.phase = .identifying
+
+        // Turn off LED when pod is accepted (triple-tap or skip)
+        coordinator.onAccepted = { [bleManager, device] in
+            bleManager.turnOff(device)
+        }
 
         // Start blink pattern: 3 blinks, pause, 3 blinks, pause, repeat
         coordinator.identifyTask = Task {

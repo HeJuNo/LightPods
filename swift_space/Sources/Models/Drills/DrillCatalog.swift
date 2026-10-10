@@ -11,7 +11,7 @@ struct DrillCatalog {
         let minPods: Int
         let maxPods: Int?
         let playerRange: ClosedRange<Int>
-        let factory: () -> any Drill
+        let factory: (_ color: PodColor, _ rounds: Int) -> any Drill
     }
 
     static let all: [Entry] = [
@@ -22,7 +22,7 @@ struct DrillCatalog {
             iconName: "bolt.fill",
             minPods: 1, maxPods: nil,
             playerRange: 1...1,
-            factory: { RandomLightDrill() }
+            factory: { color, rounds in RandomLightDrill(rounds: rounds, color: color) }
         ),
         Entry(
             id: "reaction_time",
@@ -31,7 +31,7 @@ struct DrillCatalog {
             iconName: "timer",
             minPods: 1, maxPods: 1,
             playerRange: 1...1,
-            factory: { ReactionTimeDrill() }
+            factory: { _, rounds in ReactionTimeDrill(attempts: rounds) }
         ),
         Entry(
             id: "sequence",
@@ -40,7 +40,7 @@ struct DrillCatalog {
             iconName: "arrow.right.arrow.left",
             minPods: 2, maxPods: nil,
             playerRange: 1...1,
-            factory: { SequenceDrill() }
+            factory: { color, rounds in SequenceDrill(length: rounds, color: color) }
         ),
         Entry(
             id: "color_match",
@@ -49,7 +49,7 @@ struct DrillCatalog {
             iconName: "paintpalette.fill",
             minPods: 2, maxPods: nil,
             playerRange: 1...1,
-            factory: { ColorMatchDrill() }
+            factory: { _, rounds in ColorMatchDrill(rounds: rounds) }
         ),
         Entry(
             id: "speed_tap",
@@ -58,7 +58,7 @@ struct DrillCatalog {
             iconName: "flame.fill",
             minPods: 1, maxPods: nil,
             playerRange: 1...6,
-            factory: { SpeedTapDrill() }
+            factory: { color, _ in SpeedTapDrill(color: color) }
         ),
     ]
 }
