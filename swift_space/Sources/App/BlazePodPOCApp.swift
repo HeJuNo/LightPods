@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct BlazePodPOCApp: App {
@@ -6,5 +7,6 @@ struct BlazePodPOCApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [SavedPod.self, PodGroup.self])
     }
 }

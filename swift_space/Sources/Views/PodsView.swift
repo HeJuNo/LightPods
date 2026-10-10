@@ -1,36 +1,82 @@
 import SwiftUI
+import SwiftData
 
 struct PodsView: View {
     var bleManager: BLEManager
-    
+    @Query(sort: \PodGroup.name) private var groups: [PodGroup]
+    @State private var selectedGroupID: PersistentIdentifier?
+
+    private var displayedPods: [PodDevice] {
+        if let groupID = selectedGroupID,
+           let group = groups.first(where: { $0.persistentModelID == groupID }),
+           let groupPodUUIDs = group.pods?.map({ $0.peripheralUUID }) {
+            return bleManager.connectedPods.filter { groupPodUUIDs.contains($0.id.uuidString) }
+        }
+        return bleManager.connectedPods
+    }
+
     var body: some View {
         Group {
             if bleManager.connectedPods.isEmpty {
                 ContentUnavailableView {
                     Label("No Pods", systemImage: "circle.grid.2x2")
                 } description: {
-                    Text("Add pods from the Scan tab to control them here.")
+                    Text("Tap the gear icon to scan and add BlazePods.")
                 }
             } else {
-                List {
-                    ForEach(bleManager.connectedPods) { pod in
-                        PodCardView(pod: pod, bleManager: bleManager)
+                VStack(spacing: 0) {
+                    if !groups.isEmpty {
+                        groupPicker
                     }
+                    List {
+                        ForEach(displayedPods) { pod in
+                            PodCardView(pod: pod, bleManager: bleManager)
+                        }
+                    }
+                    .listStyle(.plain)
                 }
-                .listStyle(.plain)
             }
         }
-        .navigationTitle("Pods (\(bleManager.connectedPods.count))")
+        .navigationTitle("Pods (\(displayedPods.count))")
+    }
+
+    private var groupPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                groupChip(name: "All", id: nil)
+                ForEach(groups) { group in
+                    groupChip(name: group.name, id: group.persistentModelID)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private func groupChip(name: String, id: PersistentIdentifier?) -> some View {
+        let isSelected = selectedGroupID == id
+        return Button {
+            selectedGroupID = id
+        } label: {
+            Text(name)
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(isSelected ? Color.accentColor : Color(.systemGray5))
+                )
+                .foregroundStyle(isSelected ? .white : .primary)
+        }
     }
 }
 
 struct PodCardView: View {
     var pod: PodDevice
     var bleManager: BLEManager
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pod.name)
@@ -52,9 +98,8 @@ struct PodCardView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
+
             if pod.connectionState == .authenticated {
-                // Color picker
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(PodColor.allCases) { color in
@@ -74,8 +119,7 @@ struct PodCardView: View {
                         }
                     }
                 }
-                
-                // Actions
+
                 HStack(spacing: 12) {
                     Button {
                         bleManager.lightUp(pod, color: pod.selectedColor)
@@ -85,11 +129,11 @@ struct PodCardView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(pod.selectedColor.swiftUIColor == .white ? .gray : pod.selectedColor.swiftUIColor)
-                    
-                    Button(role: .destructive) {
-                        bleManager.disconnectPod(pod)
+
+                    Button {
+                        bleManager.turnOff(pod)
                     } label: {
-                        Label("Disconnect", systemImage: "xmark.circle")
+                        Label("Off", systemImage: "lightbulb.slash")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -102,13 +146,6 @@ struct PodCardView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    
-                    Button(role: .destructive) {
-                        bleManager.removePod(pod)
-                    } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
-                    .buttonStyle(.bordered)
                 }
             } else if pod.connectionState == .error {
                 if let msg = pod.errorMessage {
@@ -123,6 +160,14 @@ struct PodCardView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(pod.connectionState.rawValue)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
@@ -133,7 +178,7 @@ struct PodCardView: View {
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
     }
-    
+
     private var statusBadge: some View {
         HStack(spacing: 4) {
             Circle()
@@ -144,7 +189,7 @@ struct PodCardView: View {
                 .foregroundStyle(.secondary)
         }
     }
-    
+
     private var statusColor: Color {
         switch pod.connectionState {
         case .disconnected: return .gray
