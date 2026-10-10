@@ -4,14 +4,13 @@ import SwiftData
 struct DrillView: View {
     var bleManager: BLEManager
     @Query(sort: \PodGroup.name) private var groups: [PodGroup]
+    @Query(sort: \DrillPreset.createdAt) private var presets: [DrillPreset]
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedGroupID: PersistentIdentifier?
     @State private var drillEngine: DrillEngine?
     @State private var selectedDrillEntry: DrillCatalog.Entry?
+    @State private var drillConfig = DrillConfiguration()
     @State private var showDrillConfig = false
-    @State private var configPlayerCount: Int = 1
-    @State private var configLEDColor: PodColor = .white
-    @State private var configRounds: Int = 10
-    @State private var showResults = false
     @State private var lastDrillStats: DrillStats?
 
     private var authenticatedPods: [PodDevice] {
@@ -37,6 +36,11 @@ struct DrillView: View {
                         groupSelector
                     }
 
+                    // Presets
+                    if !presets.isEmpty {
+                        presetsSection
+                    }
+
                     // Drill catalog
                     drillCatalogList
                 }
@@ -50,11 +54,16 @@ struct DrillView: View {
         }
         .navigationTitle("Drills")
         .sheet(isPresented: $showDrillConfig) {
-            drillConfigSheet
-        }
-        .sheet(isPresented: $showResults) {
-            if let stats = lastDrillStats {
-                drillResultsSheet(stats: stats)
+            if let entry = selectedDrillEntry {
+                NavigationStack {
+                    DrillConfigView(
+                        entry: entry,
+                        config: drillConfig,
+                        podCount: authenticatedPods.count,
+                        onStart: { startDrill(entry: entry) },
+                        onSavePreset: { name in savePreset(name: name, entryID: entry.id) }
+                    )
+                }
             }
         }
     }
@@ -112,6 +121,69 @@ struct DrillView: View {
         .disabled(drillEngine?.isRunning == true)
     }
 
+    // MARK: - Presets
+
+    private var presetsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Presets")
+                .font(.headline)
+
+            ForEach(presets) { preset in
+                presetRow(preset)
+            }
+        }
+    }
+
+    private func presetRow(_ preset: DrillPreset) -> some View {
+        let entry = DrillCatalog.all.first { $0.id == preset.drillTypeID }
+        return Button {
+            if let entry {
+                selectedDrillEntry = entry
+                drillConfig = preset.loadConfig()
+                showDrillConfig = true
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: entry?.iconName ?? "star.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.orange.opacity(0.15))
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(preset.name)
+                        .font(.subheadline.weight(.medium))
+                    Text(entry?.name ?? "Unknown drill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.systemGray6))
+            }
+        }
+        .tint(.primary)
+        .contextMenu {
+            Button(role: .destructive) {
+                modelContext.delete(preset)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
     // MARK: - Drill Catalog
 
     private var drillCatalogList: some View {
@@ -129,9 +201,7 @@ struct DrillView: View {
         let hasPods = authenticatedPods.count >= entry.minPods
         return Button {
             selectedDrillEntry = entry
-            configPlayerCount = entry.playerRange.lowerBound
-            configLEDColor = .white
-            configRounds = 10
+            drillConfig = DrillConfiguration()
             showDrillConfig = true
         } label: {
             HStack(spacing: 14) {
@@ -193,9 +263,8 @@ struct DrillView: View {
 
             // Stop button
             Button {
-                engine.stop()
-                // Save stats before engine clears drill
                 lastDrillStats = drill.stats
+                engine.stop()
             } label: {
                 Label("Stop Drill", systemImage: "stop.fill")
                     .font(.headline)
@@ -209,7 +278,6 @@ struct DrillView: View {
 
     private func liveStatsCard(stats: DrillStats) -> some View {
         VStack(spacing: 12) {
-            // Last reaction time
             if let last = stats.lastMs {
                 Text("\(last)")
                     .font(.system(size: 64, weight: .bold, design: .monospaced))
@@ -295,20 +363,6 @@ struct DrillView: View {
         }
     }
 
-    private func drillResultsSheet(stats: DrillStats) -> some View {
-        NavigationStack {
-            statsView(stats: stats)
-                .padding()
-                .navigationTitle("Results")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showResults = false }
-                    }
-                }
-        }
-    }
-
     private func statCard(title: String, value: String, icon: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
@@ -328,105 +382,19 @@ struct DrillView: View {
         }
     }
 
-    // MARK: - Drill Config Sheet
-
-    private var drillConfigSheet: some View {
-        NavigationStack {
-            Form {
-                if let entry = selectedDrillEntry {
-                    Section {
-                        HStack(spacing: 12) {
-                            Image(systemName: entry.iconName)
-                                .font(.title2)
-                                .foregroundStyle(.blue)
-                                .frame(width: 40)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.name)
-                                    .font(.headline)
-                                Text(entry.description)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    Section("Settings") {
-                        if entry.playerRange.count > 1 {
-                            Stepper("Players: \(configPlayerCount)",
-                                    value: $configPlayerCount,
-                                    in: entry.playerRange)
-                        }
-
-                        HStack {
-                            Text("LED Color")
-                            Spacer()
-                            Menu {
-                                ForEach(PodColor.selectableColors) { color in
-                                    Button {
-                                        configLEDColor = color
-                                    } label: {
-                                        Label(color.displayName, systemImage: configLEDColor == color ? "checkmark.circle.fill" : "circle.fill")
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(configLEDColor.swiftUIColor)
-                                        .frame(width: 18, height: 18)
-                                    Text(configLEDColor.displayName)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-
-                        Stepper("Rounds: \(configRounds)",
-                                value: $configRounds,
-                                in: 3...50)
-                    }
-
-                    Section {
-                        HStack {
-                            Image(systemName: "circle.grid.2x2.fill")
-                                .foregroundStyle(.green)
-                            Text("\(authenticatedPods.count) pod(s) ready")
-                        }
-                    } footer: {
-                        if authenticatedPods.count < entry.minPods {
-                            Text("This drill requires at least \(entry.minPods) pod(s).")
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Configure Drill")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        showDrillConfig = false
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Start") {
-                        showDrillConfig = false
-                        if let entry = selectedDrillEntry {
-                            startDrill(entry: entry)
-                        }
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(authenticatedPods.count < (selectedDrillEntry?.minPods ?? 1))
-                }
-            }
-        }
-    }
-
     // MARK: - Actions
 
     private func startDrill(entry: DrillCatalog.Entry) {
         let pods = authenticatedPods
         let engine = DrillEngine(bleManager: bleManager, pods: pods)
         self.drillEngine = engine
-        let drill = entry.factory(configLEDColor, configRounds)
+        let drill = entry.factory(drillConfig)
         engine.start(drill)
+    }
+
+    private func savePreset(name: String, entryID: String) {
+        let preset = DrillPreset(name: name, drillTypeID: entryID)
+        preset.saveConfig(drillConfig)
+        modelContext.insert(preset)
     }
 }

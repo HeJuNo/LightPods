@@ -43,6 +43,12 @@ class BLEManager: NSObject {
     /// Callback when a tap is received from any pod
     var onTapReceived: ((PodDevice, TapEvent) -> Void)?
 
+    /// Auto-detect: automatically connect discovered pods
+    var autoDetectEnabled = false
+
+    /// Callback when a pod is auto-connected and authenticated (for auto-saving)
+    var onPodAutoConnected: ((PodDevice) -> Void)?
+
     /// Stored manufacturer data for reconnection (peripheralUUID -> Data)
     private var storedMfrData: [UUID: Data] = [:]
 
@@ -344,6 +350,11 @@ extension BLEManager: CBCentralManagerDelegate {
             let device = PodDevice(peripheral: peripheral, name: name, rssi: RSSI.intValue, manufacturerData: mfrData)
             discoveredDevices.append(device)
             logger.info("Discovered BlazePod: \(device.name) RSSI=\(RSSI.intValue)")
+
+            // Auto-detect: connect immediately
+            if autoDetectEnabled {
+                connectPod(device)
+            }
         }
     }
 
@@ -442,6 +453,7 @@ extension BLEManager: CBPeripheralDelegate {
             } else {
                 pod.connectionState = .authenticated
                 logger.info("Authenticated \(pod.name) ✓")
+                onPodAutoConnected?(pod)
             }
         } else if characteristic.uuid == colorCharUUID {
             if let error = error {

@@ -44,35 +44,6 @@ class DrillStats {
     var lastMs: UInt32? { reactionTimesMs.last }
 }
 
-// MARK: - Drill Configuration
-
-/// How a pod turns off during a drill
-enum LightsOutMode: String, CaseIterable, Identifiable {
-    case hit = "On Tap"               // pod turns off when tapped (offOnTap=true)
-    case timeout = "After Timeout"     // pod turns off after a timeout, taps still counted
-    case hitAndTimeout = "Tap or Timeout" // whichever comes first
-
-    var id: String { rawValue }
-}
-
-/// Delay between one pod going out and the next lighting up
-enum LightDelayMode: String, CaseIterable, Identifiable {
-    case none = "None"
-    case fixed = "Fixed"
-    case random = "Random"
-
-    var id: String { rawValue }
-}
-
-/// When the drill ends
-enum DurationMode: String, CaseIterable, Identifiable {
-    case time = "Time Limit"
-    case hitCount = "Hit Count"
-    case timeAndHitCount = "Time or Hits"
-
-    var id: String { rawValue }
-}
-
 // MARK: - Drill Protocol
 
 /// A drill is a self-contained game/exercise that controls pods and collects stats.

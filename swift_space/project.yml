@@ -25,7 +25,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: BlazePodPOC
+        CFBundleDisplayName: LightPods
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         APIBaseURL: $(API_BASE_URL)

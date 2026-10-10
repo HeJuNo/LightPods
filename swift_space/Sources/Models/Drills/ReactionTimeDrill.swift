@@ -10,44 +10,49 @@ class ReactionTimeDrill: Drill {
     let playerRange: ClosedRange<Int> = 1...1
     let iconName = "timer"
     let stats: DrillStats
+    let config: DrillConfiguration
 
-    let attempts: Int
-    let minDelaySeconds: Double
-    let maxDelaySeconds: Double
-
-    init(attempts: Int = 5, minDelay: Double = 2.0, maxDelay: Double = 5.0) {
-        self.attempts = attempts
-        self.minDelaySeconds = minDelay
-        self.maxDelaySeconds = maxDelay
+    init(config: DrillConfiguration = DrillConfiguration()) {
+        self.config = config
         self.stats = DrillStats(drillName: "Reaction Time")
     }
 
     func run(engine: DrillEngine) async {
         guard let pod = engine.pods.first else { return }
+        let greenAdj = config.adjustedRGB(for: .green)
+        let redAdj = config.adjustedRGB(for: .red)
 
-        for _ in 0..<attempts {
+        for cycle in 0..<config.cycleCount {
             guard !Task.isCancelled else { break }
-
-            // Red = get ready
-            engine.setColor(pod, color: .red)
-            engine.drainTaps()
-
-            // Random delay
-            let delay = Double.random(in: minDelaySeconds...maxDelaySeconds)
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { break }
-
-            // Green = go!
-            engine.setColor(pod, color: .green, offOnTap: true)
-
-            if let event = await engine.waitForTap(from: pod, timeout: 10.0, stats: stats) {
-                stats.hits += 1
-                stats.reactionTimesMs.append(event.elapsedMs)
-            } else {
-                stats.misses += 1
+            if cycle > 0 {
+                try? await Task.sleep(for: .seconds(config.timeBetweenCycles))
             }
 
-            try? await Task.sleep(for: .milliseconds(500))
+            let attempts = config.durationHitCount
+            for _ in 0..<attempts {
+                guard !Task.isCancelled else { break }
+
+                // Red = get ready
+                engine.setColor(pod, r: redAdj.r, g: redAdj.g, b: redAdj.b)
+                engine.drainTaps()
+
+                // Random delay
+                let delay = Double.random(in: 2.0...5.0)
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { break }
+
+                // Green = go!
+                engine.setColor(pod, r: greenAdj.r, g: greenAdj.g, b: greenAdj.b, offOnTap: true)
+
+                if let event = await engine.waitForTap(from: pod, timeout: 10.0, stats: stats) {
+                    stats.hits += 1
+                    stats.reactionTimesMs.append(event.elapsedMs)
+                } else {
+                    stats.misses += 1
+                }
+
+                try? await Task.sleep(for: .milliseconds(500))
+            }
         }
     }
 }

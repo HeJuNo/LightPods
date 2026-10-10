@@ -7,6 +7,6 @@ struct BlazePodPOCApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [SavedPod.self, PodGroup.self])
+        .modelContainer(for: [SavedPod.self, PodGroup.self, DrillPreset.self])
     }
 }

@@ -86,6 +86,23 @@ struct SettingsView: View {
                 Text("Groups")
             }
 
+            // MARK: - Auto-Detect
+            Section {
+                Toggle(isOn: Binding(
+                    get: { bleManager.autoDetectEnabled },
+                    set: { newVal in
+                        bleManager.autoDetectEnabled = newVal
+                        if newVal && !bleManager.isScanning {
+                            bleManager.startScanning()
+                        }
+                    }
+                )) {
+                    Label("Auto-Detect Pods", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            } footer: {
+                Text("Automatically connect and save discovered BlazePods as \"Pod XXX\".")
+            }
+
             // MARK: - Bluetooth Status
             if bleManager.bluetoothState != .poweredOn {
                 Section {

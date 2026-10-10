@@ -42,6 +42,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             autoReconnectSavedPods()
+            setupAutoDetect()
         }
     }
 
@@ -53,6 +54,35 @@ struct ContentView: View {
         }
         guard !infos.isEmpty else { return }
         bleManager.reconnectSavedPods(infos)
+    }
+
+    private func setupAutoDetect() {
+        bleManager.onPodAutoConnected = { pod in
+            autoSavePod(pod)
+        }
+    }
+
+    private func autoSavePod(_ pod: PodDevice) {
+        // Don't double-save
+        let existingUUID = pod.id.uuidString
+        guard !savedPods.contains(where: { $0.peripheralUUID == existingUUID }) else { return }
+
+        // Build name: "Pod XXX" where XXX are last 3+ chars of serial or UUID
+        let suffix: String
+        if let serial = pod.bleSerialNumber, serial.count >= 3 {
+            suffix = String(serial.suffix(3))
+        } else {
+            let uuidStr = pod.id.uuidString.replacingOccurrences(of: "-", with: "")
+            suffix = String(uuidStr.suffix(3)).uppercased()
+        }
+
+        let saved = SavedPod(
+            peripheralUUID: existingUUID,
+            name: pod.name,
+            manufacturerDataHex: pod.manufacturerDataHex
+        )
+        saved.alias = "Pod \(suffix)"
+        modelContext.insert(saved)
     }
 
     private func hexToData(_ hex: String) -> Data? {
@@ -72,5 +102,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [SavedPod.self, PodGroup.self], inMemory: true)
+        .modelContainer(for: [SavedPod.self, PodGroup.self, DrillPreset.self], inMemory: true)
 }
