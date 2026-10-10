@@ -118,9 +118,7 @@ platform :ios do
       end
     end
 
-    configure_bundle_id("LightPods", APP_IDENTIFIER, [
-      Spaceship::ConnectAPI::BundleIdCapability::Type::BLUETOOTH_ACCESSORIES,
-    ])
+    configure_bundle_id("LightPods", APP_IDENTIFIER, [])
   end
 
   desc "Provision Certificates"
