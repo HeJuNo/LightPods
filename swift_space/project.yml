@@ -1,0 +1,33 @@
+name: BlazePodPOC
+options:
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+targets:
+  BlazePodPOC:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - Sources
+      - Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abacusai.blazepodpoc.t1791657084
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: BlazePodPOC
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        APIBaseURL: $(API_BASE_URL)
+        ITSAppUsesNonExemptEncryption: false
+        NSBluetoothAlwaysUsageDescription: 'LightPods needs Bluetooth to discover and control your BlazePod reaction pods.'

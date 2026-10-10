@@ -1,0 +1,32 @@
+default_platform(:ios)
+
+platform :ios do
+  before_all do
+    # Ensure XcodeGen project is generated
+    Dir.chdir("../swift_space") do
+      sh("xcodegen generate")
+    end
+  end
+
+  desc "Build the app for simulator"
+  lane :build do
+    xcodebuild(
+      project: "swift_space/BlazePodPOC.xcodeproj",
+      scheme: "BlazePodPOC",
+      sdk: "iphonesimulator",
+      configuration: "Debug",
+      xcargs: "CODE_SIGNING_ALLOWED=NO"
+    )
+  end
+
+  desc "Run tests"
+  lane :test do
+    scan(
+      project: "swift_space/BlazePodPOC.xcodeproj",
+      scheme: "BlazePodPOC",
+      sdk: "iphonesimulator",
+      device: "iPhone 16",
+      clean: true
+    )
+  end
+end

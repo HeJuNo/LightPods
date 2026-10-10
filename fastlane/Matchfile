@@ -1,0 +1,7 @@
+# Matchfile - code signing configuration stub
+# Uncomment and configure for your team:
+#
+# git_url("https://github.com/HeJuNo/certificates")
+# type("appstore")  # or "development", "adhoc"
+# app_identifier("com.hejuno.lightpods")
+# username("your-apple-id@example.com")
