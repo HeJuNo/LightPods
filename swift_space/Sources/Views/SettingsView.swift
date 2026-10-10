@@ -206,43 +206,55 @@ struct SettingsView: View {
         let connectedPod = bleManager.connectedPods.first {
             $0.id.uuidString == saved.peripheralUUID
         }
-        return HStack {
+        return HStack(alignment: .center, spacing: 10) {
             Circle()
                 .fill(statusColor(for: connectedPod))
                 .frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
+
+            // Left: Name + Serial below
+            VStack(alignment: .leading, spacing: 3) {
                 Text(saved.displayName)
                     .font(.subheadline.weight(.medium))
-                HStack(spacing: 6) {
-                    Text(connectedPod?.connectionState.rawValue ?? "Not connected")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let serial = connectedPod?.bleSerialNumber, !serial.isEmpty {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text("S/N \(serial)")
+                if let serial = connectedPod?.bleSerialNumber, !serial.isEmpty {
+                    Text("S/N \(serial)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospaced()
+                }
+            }
+
+            Spacer()
+
+            // Right side: battery (icon above %), status, chevron
+            HStack(spacing: 12) {
+                // Battery: icon above percentage
+                if let pod = connectedPod, let level = pod.batteryLevel {
+                    VStack(spacing: 1) {
+                        Image(systemName: pod.batteryIconName)
+                            .foregroundStyle(pod.batteryColor)
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .monospaced()
+                        Text("\(level)%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
                     }
                 }
+
+                // Status badge top-right
+                Text(connectedPod?.connectionState.rawValue ?? "Not connected")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(statusTextColor(for: connectedPod))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background {
+                        Capsule()
+                            .fill(statusColor(for: connectedPod).opacity(0.2))
+                    }
+
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
             }
-            Spacer()
-            // Battery indicator
-            if let pod = connectedPod, let level = pod.batteryLevel {
-                HStack(spacing: 2) {
-                    Image(systemName: pod.batteryIconName)
-                        .foregroundStyle(pod.batteryColor)
-                        .font(.caption)
-                    Text("\(level)%")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            Image(systemName: "chevron.right")
-                .foregroundStyle(.tertiary)
-                .font(.caption)
         }
     }
 
@@ -291,6 +303,16 @@ struct SettingsView: View {
         case .connecting, .authenticating, .connected: return .orange
         case .error: return .red
         case .disconnected: return .gray
+        }
+    }
+
+    private func statusTextColor(for pod: PodDevice?) -> Color {
+        guard let pod = pod else { return .secondary }
+        switch pod.connectionState {
+        case .authenticated: return .green
+        case .connecting, .authenticating, .connected: return .orange
+        case .error: return .red
+        case .disconnected: return .secondary
         }
     }
 
