@@ -1,6 +1,9 @@
-name: 4. Build LightPods Manual
-run-name: Build LightPods Manual (${{ github.ref_name }})
+name: 4. Build LightPods
+run-name: Build LightPods (${{ github.ref_name }})
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
