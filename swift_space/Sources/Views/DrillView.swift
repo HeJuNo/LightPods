@@ -10,7 +10,6 @@ struct DrillView: View {
     @State private var drillEngine: DrillEngine?
     @State private var selectedDrillEntry: DrillCatalog.Entry?
     @State private var drillConfig = DrillConfiguration()
-    @State private var showDrillConfig = false
     @State private var lastDrillStats: DrillStats?
 
     private var authenticatedPods: [PodDevice] {
@@ -53,17 +52,15 @@ struct DrillView: View {
             .padding()
         }
         .navigationTitle("Drills")
-        .sheet(isPresented: $showDrillConfig) {
-            if let entry = selectedDrillEntry {
-                NavigationStack {
-                    DrillConfigView(
-                        entry: entry,
-                        config: drillConfig,
-                        podCount: authenticatedPods.count,
-                        onStart: { startDrill(entry: entry) },
-                        onSavePreset: { name in savePreset(name: name, entryID: entry.id) }
-                    )
-                }
+        .sheet(item: $selectedDrillEntry) { entry in
+            NavigationStack {
+                DrillConfigView(
+                    entry: entry,
+                    config: drillConfig,
+                    podCount: authenticatedPods.count,
+                    onStart: { startDrill(entry: entry) },
+                    onSavePreset: { name in savePreset(name: name, entryID: entry.id) }
+                )
             }
         }
     }
@@ -138,9 +135,8 @@ struct DrillView: View {
         let entry = DrillCatalog.all.first { $0.id == preset.drillTypeID }
         return Button {
             if let entry {
-                selectedDrillEntry = entry
                 drillConfig = preset.loadConfig()
-                showDrillConfig = true
+                selectedDrillEntry = entry
             }
         } label: {
             HStack(spacing: 12) {
@@ -200,9 +196,8 @@ struct DrillView: View {
     private func drillCard(entry: DrillCatalog.Entry) -> some View {
         let hasPods = authenticatedPods.count >= entry.minPods
         return Button {
-            selectedDrillEntry = entry
             drillConfig = DrillConfiguration()
-            showDrillConfig = true
+            selectedDrillEntry = entry
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: entry.iconName)

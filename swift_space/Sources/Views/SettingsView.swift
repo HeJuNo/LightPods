@@ -15,6 +15,33 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            // MARK: - Flash All / Scan
+            Section {
+                if !bleManager.authenticatedPods.isEmpty {
+                    Button {
+                        for pod in bleManager.authenticatedPods {
+                            bleManager.flash(pod, color: .white, count: 3, onMs: 200, offMs: 150)
+                        }
+                    } label: {
+                        Label("Flash All Pods", systemImage: "light.max")
+                    }
+                }
+
+                Toggle(isOn: Binding(
+                    get: { bleManager.autoDetectEnabled },
+                    set: { newVal in
+                        bleManager.autoDetectEnabled = newVal
+                        if newVal && !bleManager.isScanning {
+                            bleManager.startScanning()
+                        }
+                    }
+                )) {
+                    Label("Auto-Detect Pods", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            } footer: {
+                Text("Automatically connect and save discovered BlazePods.")
+            }
+
             // MARK: - Discovered Section
             if bleManager.isScanning || !bleManager.discoveredDevices.isEmpty {
                 Section {
@@ -43,12 +70,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(savedPods, id: \.peripheralUUID) { saved in
-                        Button {
-                            editingSavedPod = saved
-                        } label: {
-                            savedPodRow(saved)
-                        }
-                        .tint(.primary)
+                        savedPodRow(saved)
                     }
                     .onDelete(perform: deleteSavedPods)
                 }
@@ -84,23 +106,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Groups")
-            }
-
-            // MARK: - Auto-Detect
-            Section {
-                Toggle(isOn: Binding(
-                    get: { bleManager.autoDetectEnabled },
-                    set: { newVal in
-                        bleManager.autoDetectEnabled = newVal
-                        if newVal && !bleManager.isScanning {
-                            bleManager.startScanning()
-                        }
-                    }
-                )) {
-                    Label("Auto-Detect Pods", systemImage: "antenna.radiowaves.left.and.right")
-                }
-            } footer: {
-                Text("Automatically connect and save discovered BlazePods as \"Pod XXX\".")
             }
 
             // MARK: - Bluetooth Status
@@ -206,33 +211,32 @@ struct SettingsView: View {
         let connectedPod = bleManager.connectedPods.first {
             $0.id.uuidString == saved.peripheralUUID
         }
-        return HStack(alignment: .center, spacing: 10) {
-            Circle()
-                .fill(statusColor(for: connectedPod))
-                .frame(width: 8, height: 8)
+        return Button {
+            editingSavedPod = saved
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                // Status dot
+                Circle()
+                    .fill(statusColor(for: connectedPod))
+                    .frame(width: 10, height: 10)
 
-            // Left: Name + Serial below
-            VStack(alignment: .leading, spacing: 3) {
-                Text(saved.displayName)
-                    .font(.subheadline.weight(.medium))
-                if let serial = connectedPod?.bleSerialNumber, !serial.isEmpty {
-                    Text("S/N \(serial)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospaced()
+                // Name + short status
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(saved.displayName)
+                        .font(.body.weight(.medium))
+                    Text(shortStatus(for: connectedPod))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            }
 
-            Spacer()
+                Spacer()
 
-            // Right side: battery (icon above %), status, chevron
-            HStack(spacing: 12) {
-                // Battery: icon above percentage
+                // Battery inline
                 if let pod = connectedPod, let level = pod.batteryLevel {
-                    VStack(spacing: 1) {
+                    HStack(spacing: 3) {
                         Image(systemName: pod.batteryIconName)
                             .foregroundStyle(pod.batteryColor)
-                            .font(.caption)
+                            .font(.caption2)
                         Text("\(level)%")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -240,21 +244,37 @@ struct SettingsView: View {
                     }
                 }
 
-                // Status badge top-right
-                Text(connectedPod?.connectionState.rawValue ?? "Not connected")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(statusTextColor(for: connectedPod))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background {
-                        Capsule()
-                            .fill(statusColor(for: connectedPod).opacity(0.2))
+                // Flash button
+                if let pod = connectedPod, pod.connectionState == .authenticated {
+                    Button {
+                        bleManager.flash(pod, color: .white, count: 3, onMs: 200, offMs: 150)
+                    } label: {
+                        Image(systemName: "light.max")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color(.systemGray5)))
                     }
+                    .buttonStyle(.plain)
+                }
 
                 Image(systemName: "chevron.right")
                     .foregroundStyle(.tertiary)
-                    .font(.caption)
+                    .font(.caption2)
             }
+        }
+        .tint(.primary)
+    }
+
+    private func shortStatus(for pod: PodDevice?) -> String {
+        guard let pod = pod else { return "Offline" }
+        switch pod.connectionState {
+        case .authenticated: return "Ready"
+        case .authenticating: return "Authenticating…"
+        case .connecting: return "Connecting…"
+        case .connected: return "Connected"
+        case .error: return "Error"
+        case .disconnected: return "Disconnected"
         }
     }
 
@@ -303,16 +323,6 @@ struct SettingsView: View {
         case .connecting, .authenticating, .connected: return .orange
         case .error: return .red
         case .disconnected: return .gray
-        }
-    }
-
-    private func statusTextColor(for pod: PodDevice?) -> Color {
-        guard let pod = pod else { return .secondary }
-        switch pod.connectionState {
-        case .authenticated: return .green
-        case .connecting, .authenticating, .connected: return .orange
-        case .error: return .red
-        case .disconnected: return .secondary
         }
     }
 
