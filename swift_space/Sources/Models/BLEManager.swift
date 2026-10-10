@@ -24,8 +24,13 @@ class BLEManager: NSObject {
     var discoveredDevices: [PodDevice] = []
     var connectedPods: [PodDevice] = []
 
+    /// Authenticated pods ready for drills
+    var authenticatedPods: [PodDevice] {
+        connectedPods.filter { $0.connectionState == .authenticated }
+    }
+
     /// Callback when a tap is received from any pod
-    var onTapReceived: ((PodDevice, UInt8, UInt32) -> Void)?
+    var onTapReceived: ((PodDevice, TapEvent) -> Void)?
 
     /// Stored manufacturer data for reconnection (peripheralUUID -> Data)
     private var storedMfrData: [UUID: Data] = [:]
@@ -60,13 +65,11 @@ class BLEManager: NSObject {
 
     // MARK: - BlazePod identification
     private func isBlazePod(manufacturerData: Data?, name: String?) -> Bool {
-        // Check company ID in manufacturer data
         if let data = manufacturerData, data.count >= 5 {
             if data[0] == blazePodCompanyID[0] && data[1] == blazePodCompanyID[1] {
                 return true
             }
         }
-        // Fallback: check device name
         if let n = name?.lowercased() {
             if n.contains("blazepod") || n.contains("blaze pod") {
                 return true
@@ -84,7 +87,6 @@ class BLEManager: NSObject {
         if !connectedPods.contains(where: { $0.id == device.id }) {
             connectedPods.append(device)
         }
-        // Store mfr data for reconnection
         if let mfr = device.manufacturerData {
             storedMfrData[device.id] = mfr
         }
@@ -129,7 +131,6 @@ class BLEManager: NSObject {
         let peripherals = centralManager.retrievePeripherals(withIdentifiers: uuids)
 
         for peripheral in peripherals {
-            // Skip already connected
             guard !connectedPods.contains(where: { $0.id == peripheral.identifier }) else { continue }
 
             let info = infos.first { $0.uuid == peripheral.identifier }
@@ -152,20 +153,43 @@ class BLEManager: NSObject {
     }
 
     // MARK: - Pod Commands
-    func lightUp(_ pod: PodDevice, color: PodColor) {
+
+    /// Set a pod's LED to an RGB color
+    /// - Parameters:
+    ///   - pod: The target pod (must be authenticated)
+    ///   - r: Red 0-255
+    ///   - g: Green 0-255
+    ///   - b: Blue 0-255
+    ///   - offOnTap: If true, the pod auto-extinguishes when tapped
+    func setColor(_ pod: PodDevice, r: UInt8, g: UInt8, b: UInt8, offOnTap: Bool = false) {
         guard pod.connectionState == .authenticated,
               let char = pod.colorCharacteristic else {
-            logger.warning("Cannot light up \(pod.name): not authenticated or no characteristic")
+            logger.warning("Cannot set color on \(pod.name): not authenticated or no characteristic")
             return
         }
-        var bytes = color.gbrBytes
-        bytes.append(0x01) // auto-off on tap
+        // BlazePod expects channels in G B R order
+        var bytes: [UInt8] = [g, b, r]
+        if offOnTap {
+            bytes.append(0x01)
+        }
         let data = Data(bytes)
         let writeType: CBCharacteristicWriteType = char.properties.contains(.write) ? .withResponse : .withoutResponse
         pod.peripheral.writeValue(data, for: char, type: writeType)
-        logger.info("Sent color \(color.rawValue) [\(bytes.map { String(format: "%02X", $0) }.joined(separator: " "))] to \(pod.name) (writeType: \(writeType == .withResponse ? "withResponse" : "withoutResponse"))")
+        logger.info("Set color (\(r),\(g),\(b)) offOnTap=\(offOnTap) on \(pod.name)")
     }
 
+    /// Set a pod's color using a PodColor preset
+    func setColor(_ pod: PodDevice, color: PodColor, offOnTap: Bool = false) {
+        let c = color.rgb
+        setColor(pod, r: c.r, g: c.g, b: c.b, offOnTap: offOnTap)
+    }
+
+    /// Convenience: light up with a preset color (always offOnTap = true for backward compat)
+    func lightUp(_ pod: PodDevice, color: PodColor) {
+        setColor(pod, color: color, offOnTap: true)
+    }
+
+    /// Turn off a pod's LED
     func turnOff(_ pod: PodDevice) {
         guard pod.connectionState == .authenticated,
               let char = pod.colorCharacteristic else { return }
@@ -175,9 +199,29 @@ class BLEManager: NSObject {
         logger.info("Turned off \(pod.name)")
     }
 
+    /// Turn off all authenticated pods
+    func allOff() {
+        for pod in authenticatedPods {
+            turnOff(pod)
+        }
+    }
+
+    /// Flash a pod N times (useful for identification)
+    func flash(_ pod: PodDevice, color: PodColor = .white, count: Int = 3, onMs: Int = 250, offMs: Int = 200) {
+        Task { @MainActor in
+            for i in 0..<count {
+                setColor(pod, color: color)
+                try? await Task.sleep(for: .milliseconds(onMs))
+                turnOff(pod)
+                if i < count - 1 {
+                    try? await Task.sleep(for: .milliseconds(offMs))
+                }
+            }
+        }
+    }
+
     // MARK: - Auth (CRC32 variant from protocol.py)
     private func authenticate(_ pod: PodDevice) {
-        // Prefer fresh mfr data on the device, fall back to stored
         let mfrData = pod.manufacturerData ?? storedMfrData[pod.id]
         guard let mfrData = mfrData else {
             pod.connectionState = .error
@@ -202,7 +246,6 @@ class BLEManager: NSObject {
             return
         }
 
-        // "sea" prefix + 4 byte LE auth value
         var payload: [UInt8] = [0x73, 0x65, 0x61] // "sea"
         payload.append(contentsOf: suffix)
 
@@ -211,10 +254,7 @@ class BLEManager: NSObject {
         logger.info("Sent auth payload to \(pod.name): \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
     }
 
-    /// CRC32 variant matching protocol.py from Snerls/blazepod
     private func computeAuthSuffix(mfrData: Data) -> [UInt8] {
-        // CoreBluetooth manufacturer data includes 2-byte company ID prefix.
-        // The auth algorithm works on the data WITHOUT the company ID.
         let dataWithoutCompanyID: Data
         if mfrData.count > 2 {
             dataWithoutCompanyID = mfrData.dropFirst(2)
@@ -231,7 +271,6 @@ class BLEManager: NSObject {
         let offset = tail[0]
         let byteArray = Array(tail[1..<5])
 
-        // Polynomial: standard CRC32 poly + (offset % 50)
         let poly: UInt32 = (0xEDB88321 &+ UInt32(offset % 50)) & 0xFFFFFFFF
 
         var crc: UInt32 = 0xFFFFFFFF
@@ -249,7 +288,6 @@ class BLEManager: NSObject {
         crc ^= 0xFFFFFFFF
         crc &= 0xFFFFFFFF
 
-        // Mixing steps
         crc = (crc &+ ((crc << 3) & 0xFFFFFFFF)) & 0xFFFFFFFF
         crc = (crc ^ (crc >> 11)) & 0xFFFFFFFF
         crc = (crc &+ ((crc << 15) & 0xFFFFFFFF)) & 0xFFFFFFFF
@@ -271,7 +309,6 @@ extension BLEManager: CBCentralManagerDelegate {
         if central.state != .poweredOn && isScanning {
             isScanning = false
         }
-        // Process pending reconnections
         if central.state == .poweredOn && !pendingReconnectUUIDs.isEmpty {
             let pending = pendingReconnectUUIDs
             pendingReconnectUUIDs = []
@@ -284,10 +321,8 @@ extension BLEManager: CBCentralManagerDelegate {
         let mfrData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
         let name = peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
 
-        // Skip devices already connected
         if connectedPods.contains(where: { $0.id == peripheral.identifier }) { return }
 
-        // *** FILTER: Only show BlazePods ***
         guard isBlazePod(manufacturerData: mfrData, name: name) else { return }
 
         if let idx = discoveredDevices.firstIndex(where: { $0.id == peripheral.identifier }) {
@@ -355,7 +390,7 @@ extension BLEManager: CBPeripheralDelegate {
                 logger.info("Found UART RX for \(pod.name)")
             case colorCharUUID:
                 pod.colorCharacteristic = char
-                logger.info("Found Color char for \(pod.name) (props: \(char.properties.rawValue))")
+                logger.info("Found Color char for \(pod.name)")
             case tapCharUUID:
                 pod.tapCharacteristic = char
                 peripheral.setNotifyValue(true, for: char)
@@ -365,7 +400,6 @@ extension BLEManager: CBPeripheralDelegate {
             }
         }
 
-        // Try to authenticate once we have UART RX
         if pod.uartRXCharacteristic != nil && pod.connectionState == .connected {
             authenticate(pod)
         }
@@ -386,8 +420,6 @@ extension BLEManager: CBPeripheralDelegate {
         } else if characteristic.uuid == colorCharUUID {
             if let error = error {
                 logger.error("Color write failed for \(pod.name): \(error.localizedDescription)")
-            } else {
-                logger.info("Color write OK for \(pod.name)")
             }
         }
     }
@@ -395,15 +427,16 @@ extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard characteristic.uuid == tapCharUUID,
               let data = characteristic.value,
-              data.count >= 5,
               let pod = connectedPods.first(where: { $0.id == peripheral.identifier }) else { return }
 
-        let state = data[0]
-        let ms = UInt32(data[1]) | (UInt32(data[2]) << 8) | (UInt32(data[3]) << 16) | (UInt32(data[4]) << 24)
+        guard let event = TapEvent(data: data) else {
+            logger.warning("Bad tap payload from \(pod.name): \(data.map { String(format: "%02X", $0) }.joined())")
+            return
+        }
 
-        pod.lastReactionTimeMs = ms
-        logger.info("Tap from \(pod.name): state=0x\(String(format: "%02X", state)) time=\(ms)ms")
+        pod.lastTapEvent = event
+        logger.info("Tap from \(pod.name): state=0x\(String(format: "%02X", event.state.rawValue)) time=\(event.elapsedMs)ms")
 
-        onTapReceived?(pod, state, ms)
+        onTapReceived?(pod, event)
     }
 }

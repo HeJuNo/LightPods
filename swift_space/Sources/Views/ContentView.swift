@@ -3,7 +3,6 @@ import SwiftData
 
 struct ContentView: View {
     @State private var bleManager = BLEManager()
-    @State private var drillManager = DrillManager()
     @State private var showSettings = false
     @Environment(\.modelContext) private var modelContext
     @Query private var savedPods: [SavedPod]
@@ -22,9 +21,9 @@ struct ContentView: View {
                         }
                 }
             }
-            Tab("Drill", systemImage: "bolt.fill") {
+            Tab("Drills", systemImage: "bolt.fill") {
                 NavigationStack {
-                    DrillView(bleManager: bleManager, drillManager: drillManager)
+                    DrillView(bleManager: bleManager)
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button { showSettings = true } label: {

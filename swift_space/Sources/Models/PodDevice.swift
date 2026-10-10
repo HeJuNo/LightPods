@@ -2,6 +2,89 @@ import Foundation
 import CoreBluetooth
 import SwiftUI
 
+// MARK: - Tap Event
+
+/// State reported by the pod when tapped
+enum TapState: UInt8 {
+    case off      = 0x00  // tap on a pod that was off
+    case litStay  = 0x21  // tap on a lit pod that stayed lit
+    case litOff   = 0x25  // tap on a lit pod that turned off
+
+    var hitLitPod: Bool {
+        self == .litStay || self == .litOff
+    }
+}
+
+/// A decoded tap notification from a BlazePod
+struct TapEvent {
+    let state: TapState
+    let elapsedMs: UInt32  // ms since the pod was last lit (hardware-timed)
+    let raw: Data          // full payload
+
+    var hitLitPod: Bool { state.hitLitPod }
+
+    init?(data: Data) {
+        guard data.count >= 5 else { return nil }
+        guard let st = TapState(rawValue: data[0]) else { return nil }
+        self.state = st
+        self.elapsedMs = UInt32(data[1])
+            | (UInt32(data[2]) << 8)
+            | (UInt32(data[3]) << 16)
+            | (UInt32(data[4]) << 24)
+        self.raw = data
+    }
+}
+
+// MARK: - Pod Color
+
+enum PodColor: String, CaseIterable, Identifiable, Sendable {
+    case red, green, blue, white, yellow, purple, orange, cyan, off
+
+    var id: String { rawValue }
+    var displayName: String { rawValue.capitalized }
+
+    var rgb: (r: UInt8, g: UInt8, b: UInt8) {
+        switch self {
+        case .red:    return (255, 0, 0)
+        case .green:  return (0, 255, 0)
+        case .blue:   return (0, 0, 255)
+        case .white:  return (255, 255, 255)
+        case .yellow: return (255, 255, 0)
+        case .purple: return (255, 0, 255)
+        case .orange: return (255, 128, 0)
+        case .cyan:   return (0, 255, 255)
+        case .off:    return (0, 0, 0)
+        }
+    }
+
+    /// Bytes in [G, B, R] order for the BlazePod color characteristic
+    var gbrBytes: [UInt8] {
+        let c = rgb
+        return [c.g, c.b, c.r]
+    }
+
+    var swiftUIColor: Color {
+        switch self {
+        case .red:    return .red
+        case .green:  return .green
+        case .blue:   return .blue
+        case .white:  return .white
+        case .yellow: return .yellow
+        case .purple: return .purple
+        case .orange: return .orange
+        case .cyan:   return .cyan
+        case .off:    return Color(.systemGray4)
+        }
+    }
+
+    /// All colors except .off for UI selectors
+    static var selectableColors: [PodColor] {
+        allCases.filter { $0 != .off }
+    }
+}
+
+// MARK: - Pod Device
+
 /// Represents a discovered or connected BlazePod (runtime BLE state)
 @Observable
 class PodDevice: Identifiable {
@@ -22,7 +105,7 @@ class PodDevice: Identifiable {
 
     var connectionState: ConnectionState = .disconnected
     var errorMessage: String?
-    var lastReactionTimeMs: UInt32?
+    var lastTapEvent: TapEvent?
     var selectedColor: PodColor = .white
 
     // BLE characteristics
@@ -42,36 +125,9 @@ class PodDevice: Identifiable {
     var manufacturerDataHex: String? {
         manufacturerData?.map { String(format: "%02X", $0) }.joined()
     }
-}
 
-enum PodColor: String, CaseIterable, Identifiable {
-    case red, green, blue, white, yellow, purple, orange
-
-    var id: String { rawValue }
-    var displayName: String { rawValue.capitalized }
-
-    /// Returns bytes in [G, B, R] order for the BlazePod color characteristic
-    var gbrBytes: [UInt8] {
-        switch self {
-        case .red:    return [0x00, 0x00, 0xFF]
-        case .green:  return [0xFF, 0x00, 0x00]
-        case .blue:   return [0x00, 0xFF, 0x00]
-        case .white:  return [0xFF, 0xFF, 0xFF]
-        case .yellow: return [0xFF, 0x00, 0xFF]
-        case .purple: return [0x00, 0xFF, 0xFF]
-        case .orange: return [0x80, 0x00, 0xFF]
-        }
-    }
-
-    var swiftUIColor: Color {
-        switch self {
-        case .red:    return .red
-        case .green:  return .green
-        case .blue:   return .blue
-        case .white:  return .white
-        case .yellow: return .yellow
-        case .purple: return .purple
-        case .orange: return .orange
-        }
+    /// Last reaction time in ms (convenience)
+    var lastReactionTimeMs: UInt32? {
+        lastTapEvent?.elapsedMs
     }
 }

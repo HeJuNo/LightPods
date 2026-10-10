@@ -93,7 +93,7 @@ struct PodCardView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("—")
+                    Text("\u{2014}")
                         .font(.title2)
                         .foregroundStyle(.secondary)
                 }
@@ -102,7 +102,7 @@ struct PodCardView: View {
             if pod.connectionState == .authenticated {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(PodColor.allCases) { color in
+                        ForEach(PodColor.selectableColors) { color in
                             Button {
                                 pod.selectedColor = color
                             } label: {

@@ -3,16 +3,13 @@ import SwiftData
 
 struct DrillView: View {
     var bleManager: BLEManager
-    var drillManager: DrillManager
     @Query(sort: \PodGroup.name) private var groups: [PodGroup]
     @State private var selectedGroupID: PersistentIdentifier?
+    @State private var drillEngine: DrillEngine?
+    @State private var selectedDrillEntry: DrillCatalog.Entry?
 
-    private var authenticatedCount: Int {
-        drillPods.count
-    }
-
-    private var drillPods: [PodDevice] {
-        var pods = bleManager.connectedPods.filter { $0.connectionState == .authenticated }
+    private var authenticatedPods: [PodDevice] {
+        var pods = bleManager.authenticatedPods
         if let groupID = selectedGroupID,
            let group = groups.first(where: { $0.persistentModelID == groupID }),
            let groupPodUUIDs = group.pods?.map({ $0.peripheralUUID }) {
@@ -24,58 +21,51 @@ struct DrillView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                reactionTimeCard
+                if let engine = drillEngine, engine.isRunning, let drill = engine.currentDrill {
+                    activeDrillView(drill: drill, engine: engine)
+                } else {
+                    // Status
+                    podStatusBar
 
-                if !groups.isEmpty {
-                    groupSelector
+                    if !groups.isEmpty {
+                        groupSelector
+                    }
+
+                    // Drill catalog
+                    drillCatalogList
                 }
 
-                controlsSection
-
-                if drillManager.totalHits > 0 {
-                    statsSection
+                // Last drill results
+                if let engine = drillEngine, !engine.isRunning, let drill = engine.currentDrill {
+                    statsView(stats: drill.stats)
+                } else if let engine = drillEngine, let drill = engine.currentDrill, drill.stats.attempts > 0 {
+                    statsView(stats: drill.stats)
                 }
             }
             .padding()
         }
-        .navigationTitle("Drill")
+        .navigationTitle("Drills")
     }
 
-    private var reactionTimeCard: some View {
-        VStack(spacing: 8) {
-            if drillManager.isRunning {
-                if let pod = drillManager.currentPod {
-                    Text("Waiting for tap on")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text(pod.name)
-                        .font(.title3.bold())
-                }
-            }
+    // MARK: - Pod Status
 
-            if let lastTime = drillManager.lastTime {
-                Text("\(lastTime)")
-                    .font(.system(size: 72, weight: .bold, design: .monospaced))
-                    .contentTransition(.numericText())
-                Text("ms")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("—")
-                    .font(.system(size: 72, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                Text(drillManager.isRunning ? "Tap the lit pod!" : "Start a drill")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+    private var podStatusBar: some View {
+        HStack {
+            Image(systemName: "circle.grid.2x2.fill")
+                .foregroundStyle(authenticatedPods.isEmpty ? Color.secondary : Color.green)
+            Text("\(authenticatedPods.count) pod(s) ready")
+                .font(.subheadline)
+                .foregroundStyle(authenticatedPods.isEmpty ? .secondary : .primary)
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding()
         .background {
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemGray6))
         }
     }
+
+    // MARK: - Group Selector
 
     private var groupSelector: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -107,72 +97,169 @@ struct DrillView: View {
                 )
                 .foregroundStyle(isSelected ? .white : .primary)
         }
-        .disabled(drillManager.isRunning)
+        .disabled(drillEngine?.isRunning == true)
     }
 
-    private var controlsSection: some View {
-        VStack(spacing: 12) {
-            if drillManager.isRunning {
-                Button {
-                    drillManager.stop()
-                } label: {
-                    Label("Stop Drill", systemImage: "stop.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-            } else {
-                Button {
-                    let podIDs = Set(drillPods.map { $0.id })
-                    drillManager.start(bleManager: bleManager, podIDs: podIDs)
-                } label: {
-                    Label("Start Random Drill", systemImage: "bolt.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .disabled(authenticatedCount == 0)
+    // MARK: - Drill Catalog
 
-                if authenticatedCount == 0 {
-                    Text("Connect and authenticate pods first")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(authenticatedCount) pod(s) ready")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    private var drillCatalogList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Choose a Drill")
+                .font(.headline)
+
+            ForEach(DrillCatalog.all) { entry in
+                drillCard(entry: entry)
             }
         }
     }
 
-    private var statsSection: some View {
+    private func drillCard(entry: DrillCatalog.Entry) -> some View {
+        let hasPods = authenticatedPods.count >= entry.minPods
+        return Button {
+            startDrill(entry: entry)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: entry.iconName)
+                    .font(.title2)
+                    .foregroundStyle(hasPods ? .blue : .secondary)
+                    .frame(width: 40)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.name)
+                        .font(.headline)
+                        .foregroundStyle(hasPods ? .primary : .secondary)
+                    Text(entry.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(entry.minPods)\(entry.maxPods.map { $0 == entry.minPods ? "" : "-\($0)" } ?? "+") pods")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+            .background {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(.systemGray6))
+            }
+        }
+        .disabled(!hasPods)
+    }
+
+    // MARK: - Active Drill
+
+    private func activeDrillView(drill: any Drill, engine: DrillEngine) -> some View {
+        VStack(spacing: 20) {
+            // Drill header
+            HStack {
+                Image(systemName: drill.iconName)
+                    .font(.title2)
+                Text(drill.name)
+                    .font(.title2.bold())
+                Spacer()
+            }
+
+            // Live stats
+            liveStatsCard(stats: drill.stats)
+
+            // Stop button
+            Button {
+                engine.stop()
+            } label: {
+                Label("Stop Drill", systemImage: "stop.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+        }
+    }
+
+    private func liveStatsCard(stats: DrillStats) -> some View {
+        VStack(spacing: 12) {
+            // Last reaction time
+            if let last = stats.lastMs {
+                Text("\(last)")
+                    .font(.system(size: 64, weight: .bold, design: .monospaced))
+                    .contentTransition(.numericText())
+                Text("ms")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\u{2014}")
+                    .font(.system(size: 64, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                Text("Tap the lit pod!")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 20) {
+                miniStat(label: "Hits", value: "\(stats.hits)")
+                miniStat(label: "Misses", value: "\(stats.misses)")
+                if let best = stats.bestMs {
+                    miniStat(label: "Best", value: "\(best)ms")
+                }
+                if stats.hits > 1 {
+                    miniStat(label: "Avg", value: "\(Int(stats.meanMs))ms")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .background {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(.systemGray6))
+        }
+    }
+
+    private func miniStat(label: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.headline.monospacedDigit())
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Stats (post-drill)
+
+    private func statsView(stats: DrillStats) -> some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Statistics")
+                Text("Results: \(stats.drillName)")
                     .font(.headline)
                 Spacer()
-                Button("Reset") {
-                    drillManager.resetStats()
-                }
-                .font(.subheadline)
             }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                statCard(title: "Hits", value: "\(drillManager.totalHits)", icon: "hand.tap.fill")
-                if let mean = drillManager.meanReactionTime {
-                    statCard(title: "Average", value: "\(Int(mean)) ms", icon: "chart.bar.fill")
-                }
-                if let best = drillManager.bestTime {
+                statCard(title: "Hits", value: "\(stats.hits)", icon: "hand.tap.fill")
+                statCard(title: "Misses", value: "\(stats.misses)", icon: "xmark.circle")
+                if let best = stats.bestMs {
                     statCard(title: "Best", value: "\(best) ms", icon: "trophy.fill")
                 }
-                if let worst = drillManager.worstTime {
+                if stats.hits > 0 {
+                    statCard(title: "Average", value: "\(Int(stats.meanMs)) ms", icon: "chart.bar.fill")
+                }
+                if let worst = stats.worstMs {
                     statCard(title: "Worst", value: "\(worst) ms", icon: "tortoise.fill")
                 }
+                if stats.attempts > 0 {
+                    statCard(title: "Accuracy", value: "\(Int(stats.accuracy * 100))%", icon: "target")
+                }
+            }
+
+            if stats.totalTimeMs > 0 {
+                Text("Duration: \(String(format: "%.1f", Double(stats.totalTimeMs) / 1000.0))s")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
@@ -199,5 +286,15 @@ struct DrillView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemGray5))
         }
+    }
+
+    // MARK: - Actions
+
+    private func startDrill(entry: DrillCatalog.Entry) {
+        let pods = authenticatedPods
+        let engine = DrillEngine(bleManager: bleManager, pods: pods)
+        self.drillEngine = engine
+        let drill = entry.factory()
+        engine.start(drill)
     }
 }
