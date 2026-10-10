@@ -278,6 +278,13 @@ struct DrillView: View {
 
     private func liveStatsCard(stats: DrillStats) -> some View {
         VStack(spacing: 12) {
+            // Cycle indicator
+            if stats.totalCycles > 1 {
+                Text("Cycle \(stats.currentCycle) of \(stats.totalCycles)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
             if let last = stats.lastMs {
                 Text("\(last)")
                     .font(.system(size: 64, weight: .bold, design: .monospaced))
@@ -304,6 +311,12 @@ struct DrillView: View {
                     miniStat(label: "Avg", value: "\(Int(stats.meanMs))ms")
                 }
             }
+
+            // Per-player live scores (multi-player)
+            if stats.hasMultiplePlayers {
+                Divider().padding(.horizontal)
+                playerScoreboard(stats: stats)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
@@ -311,6 +324,32 @@ struct DrillView: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color(.systemGray6))
         }
+    }
+
+    private func playerScoreboard(stats: DrillStats) -> some View {
+        VStack(spacing: 8) {
+            ForEach(stats.playerStats) { ps in
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(ps.playerColor.swiftUIColor)
+                        .frame(width: 12, height: 12)
+                    Text(ps.playerName)
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(ps.hits)")
+                        .font(.subheadline.bold().monospacedDigit())
+                    Text("hits")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if let best = ps.bestMs {
+                        Text("\(best)ms")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     private func miniStat(label: String, value: String) -> some View {
@@ -355,11 +394,77 @@ struct DrillView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // Per-player breakdown
+            if stats.hasMultiplePlayers {
+                Divider()
+                playerResultsBreakdown(stats: stats)
+            }
         }
         .padding()
         .background {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.systemGray6))
+        }
+    }
+
+    private func playerResultsBreakdown(stats: DrillStats) -> some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Player Breakdown")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+            }
+
+            ForEach(stats.playerStats.sorted(by: { $0.hits > $1.hits })) { ps in
+                HStack(spacing: 10) {
+                    // Rank medal for top player
+                    if ps.id == stats.playerStats.sorted(by: { $0.hits > $1.hits }).first?.id {
+                        Image(systemName: "trophy.fill")
+                            .foregroundStyle(.yellow)
+                            .font(.caption)
+                    }
+
+                    Circle()
+                        .fill(ps.playerColor.swiftUIColor)
+                        .frame(width: 14, height: 14)
+
+                    Text(ps.playerName)
+                        .font(.subheadline.weight(.medium))
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Text("\(ps.hits) hits")
+                                .font(.subheadline.bold().monospacedDigit())
+                            if ps.attempts > 0 {
+                                Text("\(Int(ps.accuracy * 100))%")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        HStack(spacing: 8) {
+                            if let best = ps.bestMs {
+                                Text("Best: \(best)ms")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if ps.hits > 0 {
+                                Text("Avg: \(Int(ps.meanMs))ms")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.systemGray5))
+                }
+            }
         }
     }
 

@@ -17,11 +17,11 @@ struct DrillCatalog {
     static let all: [Entry] = [
         Entry(
             id: "random_light",
-            name: "Random Light",
-            description: "Tap each pod as fast as you can. Pods light up randomly.",
+            name: "Random",
+            description: "One pod lights at random. Tap it as fast as you can — supports multi-player stations and First-to-Hit.",
             iconName: "bolt.fill",
             minPods: 1, maxPods: nil,
-            playerRange: 1...1,
+            playerRange: 1...6,
             factory: { config in RandomLightDrill(config: config) }
         ),
         Entry(

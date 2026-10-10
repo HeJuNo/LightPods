@@ -3,6 +3,35 @@ import os.log
 
 // MARK: - Drill Stats
 
+/// Per-player statistics
+@Observable
+class PlayerDrillStats: Identifiable {
+    let id = UUID()
+    var playerName: String
+    var playerColor: PodColor
+    var reactionTimesMs: [UInt32] = []
+    var hits: Int = 0
+    var misses: Int = 0
+
+    init(playerName: String, playerColor: PodColor) {
+        self.playerName = playerName
+        self.playerColor = playerColor
+    }
+
+    var attempts: Int { hits + misses }
+    var accuracy: Double {
+        guard attempts > 0 else { return 0 }
+        return Double(hits) / Double(attempts)
+    }
+    var meanMs: Double {
+        guard !reactionTimesMs.isEmpty else { return 0 }
+        return Double(reactionTimesMs.reduce(0, { $0 + UInt64($1) })) / Double(reactionTimesMs.count)
+    }
+    var bestMs: UInt32? { reactionTimesMs.min() }
+    var worstMs: UInt32? { reactionTimesMs.max() }
+    var lastMs: UInt32? { reactionTimesMs.last }
+}
+
 /// Statistics collected during a drill session
 @Observable
 class DrillStats {
@@ -12,6 +41,9 @@ class DrillStats {
     var misses: Int = 0
     var totalTimeMs: Int = 0
     var notes: [String] = []
+    var playerStats: [PlayerDrillStats] = []
+    var currentCycle: Int = 0
+    var totalCycles: Int = 1
 
     init(drillName: String) {
         self.drillName = drillName
@@ -42,6 +74,8 @@ class DrillStats {
     var bestMs: UInt32? { reactionTimesMs.min() }
     var worstMs: UInt32? { reactionTimesMs.max() }
     var lastMs: UInt32? { reactionTimesMs.last }
+
+    var hasMultiplePlayers: Bool { playerStats.count > 1 }
 }
 
 // MARK: - Drill Protocol
@@ -293,5 +327,39 @@ class DrillEngine {
             candidates.removeAll { $0.id == ex.id }
         }
         return candidates.randomElement()
+    }
+
+    /// Pick a random pod from a subset, avoiding the last one if possible
+    func randomPod(from subset: [PodDevice], excluding: PodDevice? = nil) -> PodDevice? {
+        var candidates = subset
+        if candidates.count > 1, let ex = excluding {
+            candidates.removeAll { $0.id == ex.id }
+        }
+        return candidates.randomElement()
+    }
+
+    /// Divide pods into stations of the given size
+    func assignStations(count: Int, podsPerStation: Int) -> [[PodDevice]] {
+        let stationCount = min(count, max(1, pods.count / max(1, podsPerStation)))
+        var stations: [[PodDevice]] = []
+        var idx = 0
+        for _ in 0..<stationCount {
+            var station: [PodDevice] = []
+            for _ in 0..<podsPerStation {
+                if idx < pods.count {
+                    station.append(pods[idx])
+                    idx += 1
+                }
+            }
+            if !station.isEmpty {
+                stations.append(station)
+            }
+        }
+        // Assign any remaining pods to existing stations round-robin
+        while idx < pods.count {
+            stations[idx % stations.count].append(pods[idx])
+            idx += 1
+        }
+        return stations
     }
 }
