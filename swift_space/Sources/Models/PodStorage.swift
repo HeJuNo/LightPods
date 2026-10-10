@@ -5,6 +5,10 @@ import SwiftData
 class SavedPod {
     @Attribute(.unique) var peripheralUUID: String
     var name: String
+    var alias: String?
+    var serialNumber: String?
+    var comment: String?
+    var podDescription: String?
     var manufacturerDataHex: String?
     var groups: [PodGroup]? = []
 
@@ -12,6 +16,12 @@ class SavedPod {
         self.peripheralUUID = peripheralUUID
         self.name = name
         self.manufacturerDataHex = manufacturerDataHex
+    }
+
+    /// Display name: alias if set, otherwise BLE name
+    var displayName: String {
+        if let a = alias, !a.isEmpty { return a }
+        return name
     }
 }
 

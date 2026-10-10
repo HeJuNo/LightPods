@@ -113,6 +113,15 @@ class PodDevice: Identifiable {
     var colorCharacteristic: CBCharacteristic?
     var tapCharacteristic: CBCharacteristic?
 
+    // Device information (read from BLE DIS / Battery services)
+    var batteryLevel: Int?          // 0-100 %
+    var firmwareRevision: String?
+    var hardwareRevision: String?
+    var softwareRevision: String?
+    var bleSerialNumber: String?    // serial from Device Information Service
+    var modelNumber: String?
+    var manufacturerName: String?
+
     init(peripheral: CBPeripheral, name: String?, rssi: Int, manufacturerData: Data?) {
         self.id = peripheral.identifier
         self.peripheral = peripheral
@@ -129,5 +138,24 @@ class PodDevice: Identifiable {
     /// Last reaction time in ms (convenience)
     var lastReactionTimeMs: UInt32? {
         lastTapEvent?.elapsedMs
+    }
+
+    /// Battery icon name based on level
+    var batteryIconName: String {
+        guard let level = batteryLevel else { return "battery.0percent" }
+        switch level {
+        case 75...100: return "battery.100percent"
+        case 50..<75: return "battery.75percent"
+        case 25..<50: return "battery.50percent"
+        case 1..<25: return "battery.25percent"
+        default: return "battery.0percent"
+        }
+    }
+
+    var batteryColor: Color {
+        guard let level = batteryLevel else { return .gray }
+        if level > 50 { return .green }
+        if level > 20 { return .yellow }
+        return .red
     }
 }

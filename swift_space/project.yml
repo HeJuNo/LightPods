@@ -31,3 +31,4 @@ targets:
         APIBaseURL: $(API_BASE_URL)
         ITSAppUsesNonExemptEncryption: false
         NSBluetoothAlwaysUsageDescription: 'LightPods needs Bluetooth to discover and control your BlazePod reaction pods.'
+        NSCameraUsageDescription: 'Scans the QR code on your BlazePod to read its serial number.'

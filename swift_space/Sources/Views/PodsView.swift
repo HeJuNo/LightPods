@@ -84,6 +84,17 @@ struct PodCardView: View {
                     statusBadge
                 }
                 Spacer()
+                if let battery = pod.batteryLevel {
+                    HStack(spacing: 3) {
+                        Image(systemName: pod.batteryIconName)
+                            .foregroundStyle(pod.batteryColor)
+                            .font(.caption)
+                        Text("\(battery)%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.trailing, 8)
+                }
                 if let ms = pod.lastReactionTimeMs {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(ms) ms")

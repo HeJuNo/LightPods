@@ -10,6 +10,17 @@ private let colorCharUUID        = CBUUID(string: "50c912a2-4cb8-4c84-b745-0e58a
 private let tapServiceUUID       = CBUUID(string: "50c928bd-4cb8-4c84-b745-0e58a0280cd6")
 private let tapCharUUID          = CBUUID(string: "50c9727e-4cb8-4c84-b745-0e58a0280cd6")
 
+// Standard BLE services
+private let batteryServiceUUID   = CBUUID(string: "180F")
+private let batteryLevelCharUUID = CBUUID(string: "2A19")
+private let disServiceUUID       = CBUUID(string: "180A")   // Device Information Service
+private let disSerialCharUUID    = CBUUID(string: "2A25")
+private let disFwRevCharUUID     = CBUUID(string: "2A26")
+private let disHwRevCharUUID     = CBUUID(string: "2A27")
+private let disSwRevCharUUID     = CBUUID(string: "2A28")
+private let disModelCharUUID     = CBUUID(string: "2A24")
+private let disMfrCharUUID       = CBUUID(string: "2A29")
+
 /// BlazePod company ID bytes (little-endian in manufacturer data)
 private let blazePodCompanyID: [UInt8] = [0xD7, 0x09]
 
@@ -340,7 +351,8 @@ extension BLEManager: CBCentralManagerDelegate {
         guard let pod = connectedPods.first(where: { $0.id == peripheral.identifier }) else { return }
         pod.connectionState = .connected
         peripheral.delegate = self
-        peripheral.discoverServices([uartServiceUUID, colorServiceUUID, tapServiceUUID])
+        peripheral.discoverServices([uartServiceUUID, colorServiceUUID, tapServiceUUID,
+                                      batteryServiceUUID, disServiceUUID])
         logger.info("Connected to \(pod.name), discovering services")
     }
 
@@ -373,6 +385,12 @@ extension BLEManager: CBPeripheralDelegate {
                 peripheral.discoverCharacteristics([colorCharUUID], for: service)
             case tapServiceUUID:
                 peripheral.discoverCharacteristics([tapCharUUID], for: service)
+            case batteryServiceUUID:
+                peripheral.discoverCharacteristics([batteryLevelCharUUID], for: service)
+            case disServiceUUID:
+                peripheral.discoverCharacteristics([disSerialCharUUID, disFwRevCharUUID,
+                                                     disHwRevCharUUID, disSwRevCharUUID,
+                                                     disModelCharUUID, disMfrCharUUID], for: service)
             default:
                 break
             }
@@ -395,6 +413,14 @@ extension BLEManager: CBPeripheralDelegate {
                 pod.tapCharacteristic = char
                 peripheral.setNotifyValue(true, for: char)
                 logger.info("Found Tap char for \(pod.name), subscribing")
+            case batteryLevelCharUUID:
+                peripheral.readValue(for: char)
+                peripheral.setNotifyValue(true, for: char)
+                logger.info("Found Battery Level for \(pod.name), reading")
+            case disSerialCharUUID, disFwRevCharUUID, disHwRevCharUUID,
+                 disSwRevCharUUID, disModelCharUUID, disMfrCharUUID:
+                peripheral.readValue(for: char)
+                logger.info("Reading DIS char \(char.uuid.uuidString) for \(pod.name)")
             default:
                 break
             }
@@ -425,18 +451,42 @@ extension BLEManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard characteristic.uuid == tapCharUUID,
-              let data = characteristic.value,
-              let pod = connectedPods.first(where: { $0.id == peripheral.identifier }) else { return }
+        guard let pod = connectedPods.first(where: { $0.id == peripheral.identifier }) else { return }
 
-        guard let event = TapEvent(data: data) else {
-            logger.warning("Bad tap payload from \(pod.name): \(data.map { String(format: "%02X", $0) }.joined())")
-            return
+        switch characteristic.uuid {
+        case tapCharUUID:
+            guard let data = characteristic.value, let event = TapEvent(data: data) else {
+                if let data = characteristic.value {
+                    logger.warning("Bad tap payload from \(pod.name): \(data.map { String(format: "%02X", $0) }.joined())")
+                }
+                return
+            }
+            pod.lastTapEvent = event
+            logger.info("Tap from \(pod.name): state=0x\(String(format: "%02X", event.state.rawValue)) time=\(event.elapsedMs)ms")
+            onTapReceived?(pod, event)
+
+        case batteryLevelCharUUID:
+            if let data = characteristic.value, let level = data.first {
+                pod.batteryLevel = Int(level)
+                logger.info("Battery \(pod.name): \(level)%")
+            }
+
+        case disSerialCharUUID:
+            pod.bleSerialNumber = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+            logger.info("Serial \(pod.name): \(pod.bleSerialNumber ?? "nil")")
+        case disFwRevCharUUID:
+            pod.firmwareRevision = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+        case disHwRevCharUUID:
+            pod.hardwareRevision = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+        case disSwRevCharUUID:
+            pod.softwareRevision = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+        case disModelCharUUID:
+            pod.modelNumber = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+        case disMfrCharUUID:
+            pod.manufacturerName = characteristic.value.flatMap { String(data: $0, encoding: .utf8) }
+
+        default:
+            break
         }
-
-        pod.lastTapEvent = event
-        logger.info("Tap from \(pod.name): state=0x\(String(format: "%02X", event.state.rawValue)) time=\(event.elapsedMs)ms")
-
-        onTapReceived?(pod, event)
     }
 }
