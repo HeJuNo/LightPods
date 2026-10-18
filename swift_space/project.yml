@@ -8,6 +8,9 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+packages:
+  BlazePodKit:
+    path: Packages/BlazePodKit
 targets:
   BlazePodPOC:
     type: application
@@ -16,6 +19,9 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
+    dependencies:
+      - package: BlazePodKit
+        product: BlazePodKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abacusai.blazepodpoc.t1791657084
@@ -31,4 +37,11 @@ targets:
         APIBaseURL: $(API_BASE_URL)
         ITSAppUsesNonExemptEncryption: false
         NSBluetoothAlwaysUsageDescription: 'LightPods needs Bluetooth to discover and control your BlazePod reaction pods.'
-        NSCameraUsageDescription: 'Scans the QR code on your BlazePod to read its serial number.'
+schemes:
+  BlazePodPOC:
+    build:
+      targets:
+        BlazePodPOC: all
+    test:
+      targets:
+        - package: BlazePodKit/BlazePodProtocolTests

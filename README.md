@@ -1,31 +1,55 @@
 # LightPods
 
-A native iOS app to control [BlazePod](https://blazepod.com) reaction training pods over Bluetooth Low Energy — without the official subscription app.
+A native iOS app to control [BlazePod](https://blazepod.com) reaction training pods over Bluetooth Low Energy.
+
+This branch replaces the earlier BLE implementation with **BlazePodKit**. BlazePodKit is a Swift package that follows the connection
+and pod protocol of the official app's Android version 6.0.1. The protocol is documented in [`docs/ble-pod-protocol.md`](docs/ble-pod-protocol.md)
+and [`docs/flags-and-state.md`](docs/flags-and-state.md).
+
+> Status: step 1 (pod discovery, connection, authentication, lights, touch, battery/charger, shutdown) is done.
+> The trainings ("Focus Squad Challenge", "Fast Feet", "Color Catch", …) are not implemented yet.
+> The drill UI from `main` was removed on this branch, but it is still on `main`.
 
 ## Features
 
-- **Scan & Connect** — Discover nearby BlazePods via BLE and connect to multiple pods simultaneously
-- **Pod Control** — Light up pods in any color (red, green, blue, white, yellow, purple, orange) with auto-off-on-tap
-- **Reaction Drill** — Random drill mode that lights pods one at a time and records reaction times from the pod's own hardware timer
-- **Statistics** — Track total hits, average/best/worst reaction times per drill session
+- **Pods**: scan, then connect and disconnect pods individually or all at once. Optional auto-connect for known pods, a pod limit, light intensity and charger polling.
+- **Pod detail**: model, firmware, bootloader and serial. Light any of the 8 colours, with optional off-on-hit; identify the pod (blinks for 30 s); hit history; shut down.
+- **Reaction**: lights random pods and records the reaction time measured by the pod itself, with average, best and misses.
+- **Log**: raw protocol traffic (TX hex, touch notifications with the hit-filter decision, UART replies, state changes). You can filter, share and clear it.
 
-## BLE Protocol
+## Architecture
 
-The BlazePod BLE protocol is reverse-engineered from:
-- [sasodoma/blazepod-hacking](https://github.com/sasodoma/blazepod-hacking)
-- [Snerls/blazepod](https://github.com/Snerls/blazepod)
+```
+swift_space/
+├── Packages/BlazePodKit/            Swift package
+│   ├── Sources/BlazePodProtocol/    pure protocol, no CoreBluetooth (unit-tested)
+│   │   PodGATT           service/characteristic UUIDs
+│   │   PodAdvertisement  manufacturer data (company 0x09D7): battery, charging, version, auth key
+│   │   PodAuthenticator  "sea" + 4-byte challenge response (CRC-32 variant + hash mix)
+│   │   PodLight          colours, intensity table, [G,B,R(,1)] LED payload, glitch guard
+│   │   PodTouch          touch payload parser + hit filter (debounce / polling / off-on-hit guard)
+│   │   PodUART           Nordic UART commands (chgs, tp7, xrs) and replies
+│   │   PodInfo           firmware / hardware gates
+│   ├── Sources/BlazePodKit/         CoreBluetooth layer
+│   │   GATTOperationQueue  serial GATT operations, 3 s timeout
+│   │   BlazePod            per-pod session: bring-up, auth, light API, hits
+│   │   PodManager          scanning, registry, connect/retry policy, pod limit, lifecycle
+│   └── Tests/BlazePodProtocolTests  incl. 53 auth reference vectors
+└── Sources/                          SwiftUI app (Pods, Reaction, Log tabs)
+```
 
-### Services & Characteristics
-| Service | UUID | Purpose |
-|---------|------|---------|
-| UART | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Authentication handshake |
-| Color | `50c97bfa-4cb8-4c84-b745-0e58a0280cd6` | Set pod LED color |
-| Tap | `50c928bd-4cb8-4c84-b745-0e58a0280cd6` | Tap notifications |
+### BLE summary
+| Service | UUID | Use |
+|---|---|---|
+| Touch (also scan filter) | `50c928bd-4cb8-4c84-b745-0e58a0280cd6` | notify `50c9727e…`: touch mode and pod-measured reaction time (u32 LE ms) |
+| LED | `50c97bfa-4cb8-4c84-b745-0e58a0280cd6` | write `50c912a2…`: `[G,B,R]`, or `[G,B,R,1]` to turn off on hit (fw ≥ 3.2) |
+| Nordic UART | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | auth `"sea"+4 bytes`, `chgs` charger poll, `tp7`/`xrs` shutdown |
+| Battery / Device Info | `180F` / `180A` | battery %, model, serial, firmware |
 
 ## Building
 
 ### Prerequisites
-- Xcode 26+ (with iOS 26 SDK)
+- Xcode 26+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 
 ### Steps
@@ -33,50 +57,20 @@ The BlazePod BLE protocol is reverse-engineered from:
 cd swift_space
 xcodegen generate
 open BlazePodPOC.xcodeproj
-# Or build from CLI:
-xcodebuild -project BlazePodPOC.xcodeproj -scheme BlazePodPOC -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO
+# Or build and test from the command line:
+xcodebuild -project BlazePodPOC.xcodeproj -scheme BlazePodPOC -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project BlazePodPOC.xcodeproj -scheme BlazePodPOC -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+# Protocol tests without Xcode project:
+cd Packages/BlazePodKit && swift test
 ```
+The Simulator has no Bluetooth. Use a real iPhone to test with pods.
 
-### CI (GitHub Actions)
-The repo includes `.github/workflows/build.yml` for a self-hosted Mac Mini M4 runner.
+## What to check first on real pods
 
-### Fastlane
-```bash
-bundle exec fastlane build   # Simulator build
-bundle exec fastlane test    # Run tests
-```
-
-## What to Test First on Real Hardware
-
-1. **BLE Discovery** — Verify BlazePods appear in the scan list (check manufacturer data filtering)
-2. **Authentication** — The auth handshake is the most critical/fragile part. Watch console logs for the auth payload bytes.
-3. **Color Commands** — Try each color; verify [G,B,R] byte order is correct for your firmware
-4. **Tap Detection** — Tap a lit pod and confirm the reaction time appears
-5. **Multi-Pod** — Connect 2+ pods and run a drill
-
-## Known Unknowns
-
-- **Firmware compatibility** — The auth algorithm was reverse-engineered from specific firmware versions. Newer BlazePod firmware may use a different handshake or change service UUIDs.
-- **Auth algorithm correctness** — The XOR + offset computation may have edge cases on different manufacturer data patterns. If auth fails, check the raw manufacturer data bytes in the scan list.
-- **BLE behavior across iOS versions** — CoreBluetooth behavior around background scanning, connection limits, and characteristic discovery can vary between iOS releases.
-- **Pod hardware timer accuracy** — Reaction times come from the pod's own clock (bytes 1-4 of tap notification). Timer start/resolution may vary by firmware.
-- **Maximum simultaneous connections** — iOS typically supports ~7 BLE peripherals. Real-world limits depend on the Bluetooth chipset and other connected accessories.
-
-## Architecture
-
-```
-Sources/
-├── App/          # App entry point
-├── Models/
-│   ├── PodDevice.swift      # Pod model + color enum
-│   ├── BLEManager.swift     # CoreBluetooth central manager
-│   └── DrillManager.swift   # Random drill logic
-└── Views/
-    ├── ContentView.swift    # Tab container
-    ├── ScanView.swift       # BLE discovery UI
-    ├── PodsView.swift       # Connected pod cards
-    └── DrillView.swift      # Reaction drill UI
-```
+Check these in the **Log** tab:
+1. **Authentication**: after connecting, you should see `auth: key=… version=…` and then `TX 6E400002 73 65 61 …`. If the pod then lights up and reports hits, it accepted the handshake.
+2. **Colour order**: RED must light the pod red. The log shows `TX 50C912A2 00 00 64`.
+3. **Touch**: each tap logs `RX touch … → hit(…)`. Compare the time the pod measured with the time measured on the phone.
 
 ## License
 
