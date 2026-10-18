@@ -18,6 +18,9 @@ public protocol PodStore: AnyObject {
     func nextNameIndex() -> Int
     var autoConnect: Set<UUID> { get set }
     func setLastConnected(_ date: Date, for id: UUID)
+    /// Pods that have been connected at least once ("my pods").
+    var knownPods: [UUID] { get }
+    func forget(_ id: UUID)
 }
 
 /// Singleton-style pod manager (`je.p0`): scanning, discovery, connection policy.
@@ -41,6 +44,10 @@ public final class PodManager: NSObject {
     public var maxConnectedPods: Int? { didSet { queue.async { self.enforcePodLimit() } } }
     /// While a workout is running, backgrounding does not disconnect pods.
     public var workoutActive = false
+    /// Connect every pod that is seen (known or new), except ones the user disconnected.
+    public var autoConnectAll = false {
+        didSet { queue.async { [self] in if autoConnectAll { pods.values.forEach(autoConnectIfWanted) } } }
+    }
 
     private let store: PodStore
     private var central: CBCentralManager!
@@ -85,9 +92,8 @@ public final class PodManager: NSObject {
 
     public func disconnect(_ pod: BlazePod) {
         queue.async { [self] in
-            pod.intent = .disconnectAndClose
-            pod.resetSession()
-            central.cancelPeripheralConnection(pod.peripheral)
+            pod.userDisconnected = true
+            close(pod)
         }
     }
 
@@ -95,10 +101,40 @@ public final class PodManager: NSObject {
         queue.async { [self] in pods.values.filter { $0.intent == .connect }.forEach(disconnect) }
     }
 
+    /// Disconnects and removes the pod from "my pods".
+    public func forget(_ id: UUID) {
+        queue.async { [self] in
+            store.forget(id)
+            store.autoConnect.remove(id)
+            if let pod = pods[id] { pod.userDisconnected = true; close(pod) }
+            publish()
+        }
+    }
+
+    private func close(_ pod: BlazePod) {
+        pod.intent = .disconnectAndClose
+        pod.resetSession()
+        central.cancelPeripheralConnection(pod.peripheral)
+    }
+
+    /// Removes a powered-down pod from the registry; it is re-created when it advertises again.
+    func drop(_ pod: BlazePod) {
+        close(pod)
+        pods[pod.id] = nil
+        publish()
+    }
+
+    private func autoConnectIfWanted(_ pod: BlazePod) {
+        guard pod.intent != .connect, pod.isVisible, !pod.userDisconnected,
+              autoConnectAll || store.autoConnect.contains(pod.id) else { return }
+        connectNow(pod, resetAttempts: true)
+    }
+
     @discardableResult
     func connectNow(_ pod: BlazePod, resetAttempts: Bool) -> Bool {
         if pod.intent != .connect, let limit = maxConnectedPods, connectingOrConnected >= limit { return false }
         if resetAttempts { pod.connectAttempts = 0 }
+        pod.userDisconnected = false
         log("\(pod.name): connect (attempt \(pod.connectAttempts))")
         pod.intent = .connect
         if pod.linkState == .disconnected || pod.linkState == .error {
@@ -115,13 +151,6 @@ public final class PodManager: NSObject {
             victim.intent = .disconnectAndClose
             central.cancelPeripheralConnection(victim.peripheral)
         }
-    }
-
-    func forget(_ pod: BlazePod) {
-        pod.intent = .disconnectAndClose
-        central.cancelPeripheralConnection(pod.peripheral)
-        pods[pod.id] = nil
-        publish()
     }
 
     // MARK: Link state machine (je.e0 msg 1)
@@ -179,7 +208,10 @@ public final class PodManager: NSObject {
         queue.async { [self] in
             guard !workoutActive else { return }
             central.stopScan()
-            let work = DispatchWorkItem { [weak self] in self?.disconnectAll() }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                pods.values.filter { $0.intent == .connect }.forEach(close)
+            }
             backgroundWork = work
             queue.asyncAfter(deadline: .now() + Timing.backgroundDisconnect, execute: work)
         }
@@ -243,7 +275,6 @@ extension PodManager: CBCentralManagerDelegate {
             pod = BlazePod(peripheral: p, name: podName(for: p.identifier), manager: self)
             pod.delegate = self
             pods[p.identifier] = pod
-            if store.autoConnect.contains(pod.id) { connectNow(pod, resetAttempts: true) }
         }
         pod.rssi = rssi.intValue
         pod.lastSeen = Date()
@@ -253,6 +284,7 @@ extension PodManager: CBCentralManagerDelegate {
             if pod.battery == nil { pod.battery = parsed.batteryPercent }
         }
         armVisibilityTimer(pod)
+        autoConnectIfWanted(pod)
         publish()
     }
 
@@ -314,5 +346,12 @@ public final class UserDefaultsPodStore: PodStore {
     }
     public func setLastConnected(_ date: Date, for id: UUID) {
         d.set(date, forKey: "pod_last_connected_\(id.uuidString)")
+        if !knownPods.contains(id) { d.set((knownPods + [id]).map(\.uuidString), forKey: "key_known_pods") }
+    }
+    public func lastConnected(for id: UUID) -> Date? { d.object(forKey: "pod_last_connected_\(id.uuidString)") as? Date }
+    public var knownPods: [UUID] { (d.stringArray(forKey: "key_known_pods") ?? []).compactMap(UUID.init) }
+    public func forget(_ id: UUID) {
+        d.set(knownPods.filter { $0 != id }.map(\.uuidString), forKey: "key_known_pods")
+        d.removeObject(forKey: "pod_last_connected_\(id.uuidString)")
     }
 }

@@ -3,12 +3,14 @@ import SwiftUI
 @main
 struct LightPodsApp: App {
     @StateObject private var controller = PodController()
+    @StateObject private var drills = DrillStore()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            DrillLibraryView()
                 .environmentObject(controller)
+                .environmentObject(drills)
                 .onAppear { controller.setScanning(true) }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -17,19 +19,6 @@ struct LightPodsApp: App {
             case .active: controller.manager.appWillEnterForeground()
             default: break
             }
-        }
-    }
-}
-
-struct ContentView: View {
-    var body: some View {
-        TabView {
-            PodListView()
-                .tabItem { Label("Pods", systemImage: "circle.hexagongrid") }
-            ReactionTestView()
-                .tabItem { Label("Reaction", systemImage: "stopwatch") }
-            LogView()
-                .tabItem { Label("Log", systemImage: "text.alignleft") }
         }
     }
 }

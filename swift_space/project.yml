@@ -22,6 +22,8 @@ targets:
     dependencies:
       - package: BlazePodKit
         product: BlazePodKit
+      - package: BlazePodKit
+        product: BlazePodDrills
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.abacusai.blazepodpoc.t1791657084
@@ -45,3 +47,4 @@ schemes:
     test:
       targets:
         - package: BlazePodKit/BlazePodProtocolTests
+        - package: BlazePodKit/BlazePodDrillsTests

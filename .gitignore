@@ -12,3 +12,6 @@ build/
 DerivedData/
 fastlane/report.xml
 fastlane/test_output/
+.build/
+.swiftpm/
+swift_space/Info.plist

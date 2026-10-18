@@ -6,16 +6,18 @@ This branch replaces the earlier BLE implementation with **BlazePodKit**. BlazeP
 and pod protocol of the official app's Android version 6.0.1. The protocol is documented in [`docs/ble-pod-protocol.md`](docs/ble-pod-protocol.md)
 and [`docs/flags-and-state.md`](docs/flags-and-state.md).
 
-> Status: step 1 (pod discovery, connection, authentication, lights, touch, battery/charger, shutdown) is done.
-> The trainings ("Focus Squad Challenge", "Fast Feet", "Color Catch", …) are not implemented yet.
-> The drill UI from `main` was removed on this branch, but it is still on `main`.
+> Status: pod setup and the trainings *Color Catch*, *Plank Focus Challenge*, *Fast Feet* and the
+> configurable *Random* drill are implemented. How the original engines work is in [`docs/drill-engines.md`](docs/drill-engines.md).
 
 ## Features
 
-- **Pods**: scan, then connect and disconnect pods individually or all at once. Optional auto-connect for known pods, a pod limit, light intensity and charger polling.
-- **Pod detail**: model, firmware, bootloader and serial. Light any of the 8 colours, with optional off-on-hit; identify the pod (blinks for 30 s); hit history; shut down.
-- **Reaction**: lights random pods and records the reaction time measured by the pod itself, with average, best and misses.
-- **Log**: raw protocol traffic (TX hex, touch notifications with the hit-filter decision, UART replies, state changes). You can filter, share and clear it.
+- **Drills.** Built-in drills plus your own. Every drill can be configured: stations, pods, players, colours per player, competition mode, lights out (hit / timeout / both), light delay (none / fixed / random), duration (time / hit count / either) and cycles with rest. Save any change as a new drill.
+- **Live run.** 3-2-1 countdown, a timer ring, a live map of the lit pods, a scoreboard per player, haptics and sounds. Cycles have a rest countdown between them.
+- **Results.** Hits, average and best reaction time, accuracy, a reaction-time chart per player, and the winner in multi-player drills.
+- **Pods.** The pod counter at the top right opens the pod settings:
+  - **Auto-connect** connects your pods and any newly switched-on pod.
+  - My pods and nearby pods, with battery and signal.
+  - Identify, light test, firmware info, shutdown, brightness, and a Bluetooth log.
 
 ## Architecture
 
@@ -33,9 +35,17 @@ swift_space/
 │   ├── Sources/BlazePodKit/         CoreBluetooth layer
 │   │   GATTOperationQueue  serial GATT operations, 3 s timeout
 │   │   BlazePod            per-pod session: bring-up, auth, light API, hits
-│   │   PodManager          scanning, registry, connect/retry policy, pod limit, lifecycle
-│   └── Tests/BlazePodProtocolTests  incl. 53 auth reference vectors
-└── Sources/                          SwiftUI app (Pods, Reaction, Log tabs)
+│   │   PodManager          scanning, registry, connect/retry policy, auto-connect, pod limit, lifecycle
+│   ├── Sources/BlazePodDrills/      drill model + engines, no CoreBluetooth (unit-tested on virtual time)
+│   │   DrillDefinition   settings, ranges, built-in drills (Codable)
+│   │   DrillSession      countdown, cycles, rest, scoring; Random and Focus station engines
+│   │   DrillScheduler    main-queue and manual (test) clocks
+│   └── Tests/                       protocol tests (53 auth vectors) + drill engine tests
+└── Sources/                          SwiftUI app
+    ├── App/      entry point, debug demo mode
+    ├── Design/   theme, glowing pod view, steppers, pickers
+    ├── Drills/   library, setup, live run, results, drill store
+    └── Pods/     pod controller, pod settings, pod detail, log
 ```
 
 ### BLE summary
@@ -63,11 +73,13 @@ xcodebuild -project BlazePodPOC.xcodeproj -scheme BlazePodPOC -destination 'plat
 # Protocol tests without Xcode project:
 cd Packages/BlazePodKit && swift test
 ```
-The Simulator has no Bluetooth. Use a real iPhone to test with pods.
+The Simulator has no Bluetooth. Use a real iPhone to test with pods. For UI work, Debug builds
+accept the launch argument `-demo`: it simulates 24 pods with a virtual athlete. Add `-drill <n>` to open
+drill *n*, and `-autostart` to start it.
 
 ## What to check first on real pods
 
-Check these in the **Log** tab:
+Check these in the Bluetooth log (pod settings → Advanced → Bluetooth log):
 1. **Authentication**: after connecting, you should see `auth: key=… version=…` and then `TX 6E400002 73 65 61 …`. If the pod then lights up and reports hits, it accepted the handshake.
 2. **Colour order**: RED must light the pod red. The log shows `TX 50C912A2 00 00 64`.
 3. **Touch**: each tap logs `RX touch … → hit(…)`. Compare the time the pod measured with the time measured on the phone.

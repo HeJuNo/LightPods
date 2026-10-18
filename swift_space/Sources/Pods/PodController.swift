@@ -15,20 +15,37 @@ struct HitEntry: Identifiable {
     let reactionMs: Int
 }
 
+/// A pod in "my pods": known from an earlier connection, nearby or not.
+struct KnownPod: Identifiable {
+    let id: UUID
+    let name: String
+    let pod: BlazePod?
+    let lastConnected: Date?
+}
+
 /// Bridges `PodManager` delegate callbacks (delivered on the main queue) into SwiftUI state.
-/// `BlazePod` is a reference type mutated on the kit's queue; views read it on refresh,
-/// which is good enough for a test harness.
+/// `BlazePod` is a reference type mutated on the kit's queue; views read it on refresh.
 final class PodController: ObservableObject {
     @Published private(set) var pods: [BlazePod] = []
     @Published private(set) var bluetoothOn = false
     @Published private(set) var isScanning = false
     @Published private(set) var log: [LogEntry] = []
     @Published private(set) var hits: [HitEntry] = []
-    @Published private(set) var autoConnect: Set<UUID>
+    @Published private(set) var knownIDs: [UUID]
     @Published var verboseLog = true
 
-    @Published var intensity: LightIntensity = .max {
-        didSet { manager.intensity = intensity }
+    @Published var autoConnectAll: Bool {
+        didSet {
+            UserDefaults.standard.set(autoConnectAll, forKey: Keys.autoConnectAll)
+            manager.autoConnectAll = autoConnectAll
+            append("Auto-connect \(autoConnectAll ? "on" : "off")")
+        }
+    }
+    @Published var intensity: LightIntensity {
+        didSet {
+            manager.intensity = intensity
+            UserDefaults.standard.set(intensity.rawValue, forKey: Keys.intensity)
+        }
     }
     @Published var chargerPolling = false {
         didSet { chargerPolling ? manager.startChargerPolling() : manager.stopChargerPolling() }
@@ -36,21 +53,50 @@ final class PodController: ObservableObject {
 
     let store = UserDefaultsPodStore()
     let manager: PodManager
-    /// Extra hit consumer (reaction test).
+    /// Hit consumer of the running drill.
     var hitObserver: ((BlazePod, Int) -> Void)?
 
     private static let maxLogEntries = 2000
+    private enum Keys {
+        static let autoConnectAll = "lightpods.autoConnectAll"
+        static let intensity = "lightpods.intensity"
+    }
 
     init() {
+        let defaults = UserDefaults.standard
         manager = PodManager(store: store)
-        autoConnect = store.autoConnect
+        knownIDs = store.knownPods
+        autoConnectAll = defaults.object(forKey: Keys.autoConnectAll) as? Bool ?? true
+        intensity = defaults.string(forKey: Keys.intensity).flatMap(LightIntensity.init) ?? .max
         manager.delegate = self
+        manager.intensity = intensity
+        manager.autoConnectAll = autoConnectAll
         manager.logHandler = { [weak self] in self?.append($0, verbose: true) }
     }
 
     var readyPods: [BlazePod] { pods.filter(\.isReady) }
+    /// Pods a drill can use (simulated in demo mode).
+    var availablePodCount: Int { Demo.isOn ? 24 : readyPods.count }
+    var connectingPods: [BlazePod] { pods.filter { $0.intent == .connect && !$0.isReady } }
 
     func pod(_ id: UUID) -> BlazePod? { pods.first { $0.id == id } }
+
+    /// Pods connected before, in the order they were first added, plus any connected right now.
+    var myPods: [KnownPod] {
+        var ids = knownIDs
+        for pod in pods where pod.intent == .connect && !ids.contains(pod.id) { ids.append(pod.id) }
+        return ids.map { id in
+            let pod = pod(id)
+            return KnownPod(id: id, name: pod?.name ?? store.name(for: id) ?? "Pod",
+                            pod: pod, lastConnected: store.lastConnected(for: id))
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Pods in range that were never added.
+    var nearbyPods: [BlazePod] {
+        pods.filter { !knownIDs.contains($0.id) && $0.intent != .connect }
+    }
 
     // MARK: Actions
 
@@ -63,20 +109,27 @@ final class PodController: ObservableObject {
     func toggleConnection(_ pod: BlazePod) {
         if pod.intent == .connect {
             manager.disconnect(pod)
-        } else if !manager.connect(pod) {
-            append("\(pod.name): pod limit reached")
+        } else {
+            connect(pod)
         }
     }
 
-    func connectAll() { pods.filter { $0.intent != .connect }.forEach { _ = manager.connect($0) } }
+    func connect(_ pod: BlazePod) {
+        if !manager.connect(pod) { append("\(pod.name): pod limit reached") }
+    }
+
+    func forget(_ id: UUID) {
+        manager.forget(id)
+        knownIDs.removeAll { $0 == id }
+    }
+
+    func connectAll() { pods.filter { $0.intent != .connect }.forEach(connect) }
     func disconnectAll() { manager.disconnectAll() }
     func allOff() { readyPods.forEach { $0.lightOff() } }
     func identifyAll() { readyPods.forEach { $0.lightOn(.default, for: 30) } }
 
-    func setAutoConnect(_ pod: BlazePod, _ on: Bool) {
-        if on { autoConnect.insert(pod.id) } else { autoConnect.remove(pod.id) }
-        store.autoConnect = autoConnect
-    }
+    /// Lights a pod for a few seconds so it can be found.
+    func identify(_ pod: BlazePod) { pod.lightOn(.lightBlue, for: 3) }
 
     func setMaxPods(_ limit: Int?) {
         manager.maxConnectedPods = limit
@@ -84,7 +137,6 @@ final class PodController: ObservableObject {
     }
 
     func clearLog() { log.removeAll() }
-    func clearHits() { hits.removeAll() }
 
     var logText: String {
         let f = ISO8601DateFormatter()
@@ -102,10 +154,13 @@ final class PodController: ObservableObject {
 extension PodController: PodManagerDelegate {
     func podManager(_ m: PodManager, didUpdate pods: [BlazePod]) {
         self.pods = pods
+        let known = store.knownPods
+        if known != knownIDs { knownIDs = known }
     }
 
     func podManager(_ m: PodManager, pod: BlazePod, didHit reactionMs: Int) {
         hits.insert(HitEntry(podID: pod.id, podName: pod.name, reactionMs: reactionMs), at: 0)
+        if hits.count > 200 { hits.removeLast() }
         append("HIT \(pod.name) \(reactionMs) ms")
         hitObserver?(pod, reactionMs)
     }
@@ -122,22 +177,35 @@ extension PodController: PodManagerDelegate {
 
 // MARK: Display helpers
 
-extension PodColor {
-    var swatch: Color {
-        switch self {
-        case .red: .red
-        case .orange: .orange
-        case .yellow: .yellow
-        case .green: .green
-        case .lightBlue: .cyan
-        case .blue: .blue
-        case .purple: .purple
-        case .pink: .pink
-        case .random: .gray
+extension BlazePod {
+    var batteryLevel: Int? { battery ?? advertisement?.batteryPercent }
+    var isCharging: Bool { charger?.isOnCharger == true || advertisement?.isCharging == true }
+
+    var statusText: String {
+        if isReady { return "Connected" }
+        if intent == .connect {
+            return connectAttempts > 0 ? "Connecting… (retry \(connectAttempts))" : "Connecting…"
         }
+        if linkState == .error { return "Connection failed" }
+        return isVisible ? "Nearby" : "Not nearby"
     }
 
-    var title: String { rawValue.replacingOccurrences(of: "_", with: " ").capitalized }
+    var statusColor: Color {
+        if isReady { return .green }
+        if intent == .connect { return .orange }
+        if linkState == .error { return .red }
+        return .secondary
+    }
+
+    /// 0...3 signal bars from RSSI.
+    var signalBars: Int {
+        switch rssi {
+        case -65...0: 3
+        case -80 ..< -65: 2
+        case -95 ..< -80: 1
+        default: 0
+        }
+    }
 }
 
 extension PodLinkState {
@@ -147,15 +215,6 @@ extension PodLinkState {
         case .connected: "Connected"
         case .ready: "Ready"
         case .error: "Error"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .disconnected: .gray
-        case .connected: .yellow
-        case .ready: .green
-        case .error: .red
         }
     }
 }

@@ -43,6 +43,8 @@ public final class BlazePod: NSObject {
     public internal(set) var charger: ChargerStatus?
     public internal(set) var info = PodInfo()
     public internal(set) var connectAttempts = 0
+    /// The user disconnected this pod; global auto-connect leaves it alone until it is connected again.
+    public internal(set) var userDisconnected = false
 
     public internal(set) var isLightOn = false
     public internal(set) var currentColor: PodColor?
@@ -141,7 +143,7 @@ public final class BlazePod: NSObject {
                 guard n < 3 else {
                     uart(.shutdownPrepare)
                     uart(.shutdownReset)
-                    manager.queue.asyncAfter(deadline: .now() + 0.1) { self.manager.forget(self) }
+                    manager.queue.asyncAfter(deadline: .now() + 0.1) { self.manager.drop(self) }
                     return
                 }
                 lightOn(.red)
