@@ -12,6 +12,7 @@ and [`docs/flags-and-state.md`](docs/flags-and-state.md).
 ## Features
 
 - **Drills.** Built-in drills plus your own. Every drill can be configured: stations, pods, players, colours per player, competition mode, lights out (hit / timeout / both), light delay (none / fixed / random), duration (time / hit count / either) and cycles with rest. Save any change as a new drill.
+- **Per-drill pods and players.** Pick and order the pods a drill uses (station order), flash them to find them, and name the players.
 - **Live run.** 3-2-1 countdown, a timer ring, a live map of the lit pods, a scoreboard per player, haptics and sounds. Cycles have a rest countdown between them.
 - **Results.** Hits, average and best reaction time, accuracy, a reaction-time chart per player, and the winner in multi-player drills.
 - **Pods.** The pod counter at the top right opens the pod settings:

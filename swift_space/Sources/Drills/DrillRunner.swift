@@ -18,10 +18,10 @@ final class DrillRunner: ObservableObject, DrillPodDriver {
     let pods: [BlazePod]
     private weak var controller: PodController?
 
-    init(definition: DrillDefinition, controller: PodController) {
+    init(definition: DrillDefinition, controller: PodController, selection: [UUID]) {
         self.definition = definition
         self.controller = controller
-        pods = Array(controller.readyPods.prefix(definition.totalPods))
+        pods = controller.assignedPods(count: definition.totalPods, selection: selection)
         session = DrillSession(definition: definition, driver: self)
         session.onUpdate = { [weak self] in self?.revision += 1 }
         session.onEvent = { [weak self] in self?.handle($0) }

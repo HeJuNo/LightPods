@@ -357,6 +357,18 @@ extension DrillDefinition {
         }
     }
 
+    /// The player's own name, or a default ("You", "Player 2", "Station 3", "S1 · P2").
+    func displayName(station: Int, index: Int) -> String {
+        if let name = playerName(station: station, index: index) { return name }
+        return defaultPlayerName(station: station, index: index)
+    }
+
+    func defaultPlayerName(station: Int, index: Int) -> String {
+        if stations == 1 { return playersPerStation == 1 ? "You" : "Player \(index + 1)" }
+        if playersPerStation == 1 { return "Station \(station + 1)" }
+        return "S\(station + 1) · P\(index + 1)"
+    }
+
     var podsText: String { "\(totalPods) pod\(totalPods == 1 ? "" : "s")" }
     var playersText: String { "\(totalPlayers) player\(totalPlayers == 1 ? "" : "s")" }
 }

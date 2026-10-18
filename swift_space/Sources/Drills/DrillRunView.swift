@@ -7,6 +7,8 @@ struct DrillRunView: View {
     @EnvironmentObject private var controller: PodController
     @Environment(\.dismiss) private var dismiss
     let definition: DrillDefinition
+    /// Chosen pods in station order (empty = automatic).
+    let selection: [UUID]
 
     @State private var runner: DrillRunner?
     @State private var confirmStop = false
@@ -26,7 +28,7 @@ struct DrillRunView: View {
 
     private func restart() {
         runner?.stop()
-        let r = DrillRunner(definition: definition, controller: controller)
+        let r = DrillRunner(definition: definition, controller: controller, selection: selection)
         runner = r
         r.start()
     }
@@ -129,10 +131,7 @@ private struct RunContent: View {
     }
 
     private func playerName(_ player: DrillPlayer) -> String {
-        let def = runner.definition
-        if def.stations == 1 { return def.playersPerStation == 1 ? "You" : "Player \(player.index + 1)" }
-        if def.playersPerStation == 1 { return "Station \(player.station + 1)" }
-        return "S\(player.station + 1) · P\(player.index + 1)"
+        runner.definition.displayName(station: player.station, index: player.index)
     }
 }
 

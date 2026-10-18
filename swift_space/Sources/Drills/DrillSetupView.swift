@@ -16,6 +16,7 @@ struct DrillSetupView: View {
     @State private var newName = ""
     @State private var running: DrillDefinition?
     @State private var savedTick = 0
+    @State private var editsPods = false
 
     init(original: DrillDefinition, onSavedAsNew: @escaping (DrillDefinition) -> Void) {
         self.original = original
@@ -35,7 +36,9 @@ struct DrillSetupView: View {
                 hero
                 podCheck
                 setupCard
+                podsCard
                 colorsCard
+                playersCard
                 if draft.engine == .focus { distractionCard }
                 if draft.engine == .random && draft.players > 1 { competitionCard }
                 lightsOutCard
@@ -77,9 +80,14 @@ struct DrillSetupView: View {
             Text("Your settings are saved under “My Drills”.")
         }
         .fullScreenCover(item: $running) { drill in
-            DrillRunView(definition: drill)
+            DrillRunView(definition: drill, selection: store.podSelection(for: original.id))
         }
         .sensoryFeedback(.success, trigger: savedTick)
+        .sheet(isPresented: $editsPods) {
+            PodSelectionView(definition: draft, initial: store.podSelection(for: original.id)) {
+                store.setPodSelection($0, for: original.id)
+            }
+        }
         .onAppear { if Demo.autostart { running = draft } }
     }
 
@@ -183,7 +191,7 @@ struct DrillSetupView: View {
             ForEach(0..<draft.playersPerStation, id: \.self) { player in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(draft.engine == .focus ? "Hit these" : "Player \(player + 1)")
+                        Text(draft.engine == .focus ? "Hit these" : draft.displayName(station: 0, index: player))
                             .font(.subheadline.weight(.medium))
                         Spacer()
                         Text(colorCountText(draft.playerColors[safe: player]?.count ?? 1))
@@ -197,6 +205,82 @@ struct DrillSetupView: View {
             Text("With several colours, each light picks one of them at random.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private var podsCard: some View {
+        let assigned = controller.assignedPods(count: draft.totalPods, selection: store.podSelection(for: original.id))
+        let custom = !store.podSelection(for: original.id).isEmpty
+        return SettingsCard(title: "Pods", symbol: "circle.hexagongrid.fill", tint: style.accent) {
+            Text(custom ? "Your chosen pods, in station order." : "Connected pods in name order.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(0..<draft.stations, id: \.self) { station in
+                HStack(spacing: 10) {
+                    if draft.stations > 1 {
+                        Text("S\(station + 1)").font(.caption.weight(.bold)).foregroundStyle(.secondary).frame(width: 24)
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(0..<draft.podsPerStation, id: \.self) { i in
+                                let index = station * draft.podsPerStation + i
+                                let pod = assigned[safe: index]
+                                VStack(spacing: 4) {
+                                    GlowPod(color: pod == nil ? nil : stationColor(station), size: 34,
+                                            label: "\(i + 1)")
+                                    Text(pod.map { shortName($0.name) } ?? "–")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(pod == nil ? .orange : .secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .scrollClipDisabled()
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    controller.flash(assigned.enumerated().map { ($0.element, stationColor($0.offset / draft.podsPerStation)) })
+                } label: {
+                    Label("Identify", systemImage: "lightbulb.max.fill").frame(maxWidth: .infinity)
+                }
+                .disabled(assigned.isEmpty)
+                Button { editsPods = true } label: {
+                    Label("Edit Pods", systemImage: "list.number").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .tint(style.accent)
+            .controlSize(.large)
+        }
+    }
+
+    private var playersCard: some View {
+        SettingsCard(title: "Player Names", symbol: "person.2.fill", tint: style.accent) {
+            ForEach(0..<draft.stations, id: \.self) { station in
+                ForEach(0..<draft.playersPerStation, id: \.self) { player in
+                    HStack(spacing: 12) {
+                        Circle().fill(draft.colors(forPlayer: player).first?.swatch ?? .gray)
+                            .frame(width: 14, height: 14)
+                        TextField(draft.defaultPlayerName(station: station, index: player), text: nameBinding(station, player))
+                            .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                        if draft.stations > 1 && draft.playersPerStation > 1 {
+                            Text("S\(station + 1)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func nameBinding(_ station: Int, _ player: Int) -> Binding<String> {
+        Binding(get: { draft.playerName(station: station, index: player) ?? "" },
+                set: { draft.setPlayerName($0, station: station, index: player) })
+    }
+
+    private func shortName(_ name: String) -> String {
+        name.hasPrefix("Pod ") ? String(name.dropFirst(4)) : name
     }
 
     private var distractionCard: some View {

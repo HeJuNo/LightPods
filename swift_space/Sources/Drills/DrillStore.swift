@@ -4,6 +4,8 @@ import Foundation
 /// Built-in drills plus the user's saved drills (JSON in Application Support).
 final class DrillStore: ObservableObject {
     @Published private(set) var custom: [DrillDefinition] = []
+    /// Pods chosen for a drill, in station order (drill id → pod ids). Missing = automatic.
+    @Published private(set) var podSelections: [UUID: [UUID]] = [:]
 
     let builtIns = DrillDefinition.builtIns
     private let url: URL
@@ -16,6 +18,21 @@ final class DrillStore: ObservableObject {
            let saved = try? JSONDecoder().decode([DrillDefinition].self, from: data) {
             custom = saved
         }
+        let raw = UserDefaults.standard.dictionary(forKey: Self.selectionsKey) as? [String: [String]] ?? [:]
+        for (drill, pods) in raw {
+            if let id = UUID(uuidString: drill) { podSelections[id] = pods.compactMap(UUID.init) }
+        }
+    }
+
+    private static let selectionsKey = "lightpods.podSelections"
+
+    func podSelection(for drill: UUID) -> [UUID] { podSelections[drill] ?? [] }
+
+    /// Empty list = automatic (connected pods in name order).
+    func setPodSelection(_ pods: [UUID], for drill: UUID) {
+        podSelections[drill] = pods.isEmpty ? nil : pods
+        let raw = Dictionary(uniqueKeysWithValues: podSelections.map { ($0.key.uuidString, $0.value.map(\.uuidString)) })
+        UserDefaults.standard.set(raw, forKey: Self.selectionsKey)
     }
 
     func drill(_ id: UUID) -> DrillDefinition? {
@@ -37,11 +54,13 @@ final class DrillStore: ObservableObject {
     func saveAsNew(_ drill: DrillDefinition, name: String) -> DrillDefinition {
         let copy = drill.duplicated(named: name)
         save(copy)
+        if let pods = podSelections[drill.id] { setPodSelection(pods, for: copy.id) }
         return copy
     }
 
     func delete(_ id: UUID) {
         custom.removeAll { $0.id == id }
+        setPodSelection([], for: id)
         persist()
     }
 

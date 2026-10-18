@@ -75,6 +75,8 @@ public struct DrillDefinition: Codable, Hashable, Identifiable, Sendable {
     public var players: Int
     /// Colours per player; a lit pod uses a random colour from the player's list.
     public var playerColors: [[PodColor]]
+    /// Optional names, indexed like `DrillSession.players` (station-major). Empty = default name.
+    public var playerNames: [String]?
     public var competition: CompetitionMode
 
     // Lights
@@ -125,6 +127,22 @@ public struct DrillDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 
     public var playersPerStation: Int { engine == .focus ? 1 : players }
+
+    /// The name given to a player, or nil when none was set.
+    public func playerName(station: Int, index: Int) -> String? {
+        let i = station * playersPerStation + index
+        guard let names = playerNames, names.indices.contains(i) else { return nil }
+        let name = names[i].trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    public mutating func setPlayerName(_ name: String, station: Int, index: Int) {
+        let i = station * playersPerStation + index
+        var names = playerNames ?? []
+        while names.count <= i { names.append("") }
+        names[i] = name
+        playerNames = names
+    }
     public var totalPods: Int { stations * podsPerStation }
     public var totalPlayers: Int { stations * playersPerStation }
 
@@ -162,6 +180,10 @@ public struct DrillDefinition: Codable, Hashable, Identifiable, Sendable {
             if lightsOut == .timeout { lightsOut = .hit }
         }
         cycles = cycles.clamped(to: Limits.cycles)
+        if var names = playerNames {
+            if names.count > totalPlayers { names.removeLast(names.count - totalPlayers) }
+            playerNames = names.allSatisfy { $0.isEmpty } ? nil : names
+        }
     }
 
     /// Why the drill can't run with the given number of ready pods, or nil.

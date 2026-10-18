@@ -131,6 +131,28 @@ final class PodController: ObservableObject {
     /// Lights a pod for a few seconds so it can be found.
     func identify(_ pod: BlazePod) { pod.lightOn(.lightBlue, for: 3) }
 
+    /// Pods a drill will use, in station order: the chosen pods that are connected first,
+    /// then the other connected pods by name.
+    func assignedPods(count: Int, selection: [UUID]) -> [BlazePod] {
+        let ready = readyPods
+        let chosen = selection.compactMap { id in ready.first { $0.id == id } }
+        let rest = ready.filter { !selection.contains($0.id) }
+        return Array((chosen + rest).prefix(count))
+    }
+
+    /// Blinks each pod three times in its colour (e.g. one colour per station).
+    func flash(_ pods: [(BlazePod, PodColor)], times: Int = 3) {
+        for i in 0..<times {
+            let on = Double(i) * 0.6
+            DispatchQueue.main.asyncAfter(deadline: .now() + on) {
+                pods.forEach { $0.0.lightOn($0.1) }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + on + 0.35) {
+                pods.forEach { $0.0.lightOff() }
+            }
+        }
+    }
+
     func setMaxPods(_ limit: Int?) {
         manager.maxConnectedPods = limit
         append("Pod limit: \(limit.map(String.init) ?? "unlimited")")

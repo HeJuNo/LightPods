@@ -108,8 +108,14 @@ public final class BlazePod: NSObject {
         lastOffAt = Date()
     }
 
+    /// Re-sends the current colour, e.g. after the brightness changed. Runs on the manager queue.
+    func reapplyLight() {
+        guard linkState == .ready, isLightOn, let color = currentColor else { return }
+        sendColor(color, offOnHit: offOnHit)
+    }
+
     private func sendColor(_ color: PodColor, offOnHit: Bool) {
-        let payload = LightCommand.payload(RGBLevel(color, manager.intensity), offOnHit: offOnHit)
+        let payload = LightCommand.payload(RGBLevel(color, manager.lightIntensity), offOnHit: offOnHit)
         write(UUIDs.lightService, UUIDs.light, payload)
         if LightGlitchGuard.needsResend(previous: lastColor, next: color, lastOffAt: lastOffAt) {
             resend(color, payload, remaining: LightGlitchGuard.maxResends)

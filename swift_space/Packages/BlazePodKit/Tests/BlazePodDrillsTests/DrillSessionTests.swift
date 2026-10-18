@@ -297,6 +297,24 @@ final class DrillSessionTests: XCTestCase {
         XCTAssertNotEqual(random.playerColors[0], random.playerColors[1])
     }
 
+    func testPlayerNames() throws {
+        var def = DrillDefinition.random
+        def.stations = 2
+        def.players = 2
+        def.setPlayerName("Anna", station: 1, index: 0)
+        def.normalize()
+        XCTAssertEqual(def.playerName(station: 1, index: 0), "Anna")
+        XCTAssertNil(def.playerName(station: 0, index: 0))
+        // Older saved drills have no names and must still decode.
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(DrillDefinition.fastFeet)) as! [String: Any]
+        json["playerNames"] = nil
+        let old = try JSONDecoder().decode(DrillDefinition.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(old.playerNames)
+        def.stations = 1
+        def.normalize()
+        XCTAssertNil(def.playerNames, "names of removed players are dropped")
+    }
+
     func testProblemReportsMissingPods() {
         XCTAssertNotNil(DrillDefinition.fastFeet.problem(readyPods: 3))
         XCTAssertNil(DrillDefinition.fastFeet.problem(readyPods: 4))

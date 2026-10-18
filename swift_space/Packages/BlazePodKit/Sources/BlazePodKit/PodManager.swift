@@ -38,7 +38,18 @@ public final class PodManager: NSObject {
     /// Debug hook: raw protocol traffic and state transitions, delivered on the main queue.
     public var logHandler: ((String) -> Void)?
     public let queue = DispatchQueue(label: "pods")
-    public var intensity: LightIntensity = .max
+    /// Global brightness. Lit pods are re-sent their colour so the change shows immediately.
+    public var intensity: LightIntensity = .max {
+        didSet {
+            let value = intensity
+            queue.async { [self] in
+                lightIntensity = value
+                pods.values.forEach { $0.reapplyLight() }
+            }
+        }
+    }
+    /// Queue-confined copy of `intensity` used when building LED payloads.
+    var lightIntensity: LightIntensity = .max
 
     /// Membership gate (`BPMembershipFeatureType.CONNECT_PODS`): nil = unlimited.
     public var maxConnectedPods: Int? { didSet { queue.async { self.enforcePodLimit() } } }
