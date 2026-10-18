@@ -146,33 +146,90 @@ public struct DrillDefinition: Codable, Hashable, Identifiable, Sendable {
     public var totalPods: Int { stations * podsPerStation }
     public var totalPlayers: Int { stations * playersPerStation }
 
-    /// Colours of a player, padded with the auto-assignment order if the list is short.
-    public func colors(forPlayer index: Int) -> [PodColor] {
-        if index < playerColors.count, !playerColors[index].isEmpty { return playerColors[index] }
+    /// Colours of a player (station-major index, like `playerNames`).
+    public func colors(station: Int, index: Int) -> [PodColor] {
+        let i = station * playersPerStation + index
+        if playerColors.indices.contains(i), !playerColors[i].isEmpty { return playerColors[i] }
+        // Older drills stored one list per player for all stations.
+        if playerColors.indices.contains(index), !playerColors[index].isEmpty { return playerColors[index] }
         return [PodColor.assignmentOrder[index % PodColor.assignmentOrder.count]]
     }
 
-    /// Adjusts dependent values after an edit so the definition stays valid.
-    public mutating func normalize() {
+    public mutating func setColors(_ colors: [PodColor], station: Int, index: Int) {
+        let i = station * playersPerStation + index
+        fillColors(upTo: i + 1)
+        playerColors[i] = colors
+    }
+
+    /// Every target colour used in a station (for keeping distracting colours apart).
+    public func targetColors(station: Int) -> Set<PodColor> {
+        Set((0..<playersPerStation).flatMap { colors(station: station, index: $0) })
+    }
+
+    /// Changes stations / players / pods and keeps each player's colours and name.
+    public mutating func setLayout(stations newStations: Int? = nil, players newPlayers: Int? = nil,
+                                   podsPerStation newPods: Int? = nil) {
+        let oldPPS = playersPerStation
+        let oldColors = (0..<totalPlayers).map { self.colors(station: $0 / oldPPS, index: $0 % oldPPS) }
+        let oldNames = (0..<totalPlayers).map { playerName(station: $0 / oldPPS, index: $0 % oldPPS) ?? "" }
+        if let newStations { stations = newStations }
+        if let newPods { podsPerStation = newPods }
+        if let newPlayers { players = newPlayers }
+        clampLayout()
+        let pps = playersPerStation
+        var newColors: [[PodColor]] = []
+        var names: [String] = []
+        for s in 0..<stations {
+            for p in 0..<pps {
+                if p < oldPPS, s * oldPPS + p < oldColors.count {
+                    newColors.append(oldColors[s * oldPPS + p])
+                    names.append(oldNames[s * oldPPS + p])
+                } else {
+                    // New station: start from station 1's colours; new player: an unused colour.
+                    newColors.append(p < oldPPS ? oldColors[p] : [unusedColor(in: newColors.suffix(p))])
+                    names.append("")
+                }
+            }
+        }
+        playerColors = newColors
+        playerNames = names
+        normalize()
+    }
+
+    private mutating func clampLayout() {
         stations = stations.clamped(to: Limits.stations)
         let minPods = engine == .focus ? Limits.focusMinPods : Limits.pods.lowerBound
         podsPerStation = podsPerStation.clamped(to: minPods...Limits.pods.upperBound)
         players = players.clamped(to: 1...min(Limits.players.upperBound, podsPerStation))
-        let count = playersPerStation
-        if playerColors.count < count {
-            for i in playerColors.count..<count {
-                let used = Set(playerColors.flatMap { $0 })
-                let next = PodColor.assignmentOrder.first { !used.contains($0) }
-                    ?? PodColor.assignmentOrder[i % PodColor.assignmentOrder.count]
-                playerColors.append([next])
+    }
+
+    private func unusedColor(in taken: ArraySlice<[PodColor]>) -> PodColor {
+        let used = Set(taken.flatMap { $0 })
+        return PodColor.assignmentOrder.first { !used.contains($0) } ?? .default
+    }
+
+    private mutating func fillColors(upTo count: Int) {
+        let pps = playersPerStation
+        while playerColors.count < count {
+            let i = playerColors.count
+            let s = i / pps, p = i % pps
+            if s > 0 {
+                playerColors.append(colors(station: 0, index: p))
+            } else {
+                playerColors.append([unusedColor(in: playerColors[...])])
             }
-        } else if playerColors.count > count {
-            playerColors.removeLast(playerColors.count - count)
         }
+    }
+
+    /// Adjusts dependent values after an edit so the definition stays valid.
+    public mutating func normalize() {
+        clampLayout()
+        fillColors(upTo: totalPlayers)
+        if playerColors.count > totalPlayers { playerColors.removeLast(playerColors.count - totalPlayers) }
         playerColors = playerColors.map { $0.isEmpty ? [.default] : Array($0.prefix(Limits.colorsPerPlayer.upperBound)) }
         if engine == .focus {
             distractingPods = distractingPods.clamped(to: 1...max(1, podsPerStation - 1))
-            let targets = Set(playerColors.first ?? [])
+            let targets = Set(playerColors.flatMap { $0 })
             distractingColors.removeAll { targets.contains($0) }
             if distractingColors.isEmpty {
                 distractingColors = [PodColor.palette.first { !targets.contains($0) } ?? .red]

@@ -37,7 +37,6 @@ struct DrillSetupView: View {
                 podCheck
                 setupCard
                 podsCard
-                colorsCard
                 playersCard
                 if draft.engine == .focus { distractionCard }
                 if draft.engine == .random && draft.players > 1 { competitionCard }
@@ -148,7 +147,7 @@ struct DrillSetupView: View {
             Spacer()
             HStack(spacing: -8) {
                 ForEach(0..<min(needed, 8), id: \.self) { i in
-                    GlowPod(color: i < ready ? draft.colors(forPlayer: 0).first : nil, size: 22)
+                    GlowPod(color: i < ready ? draft.colors(station: 0, index: 0).first : nil, size: 22)
                 }
             }
         }
@@ -162,14 +161,14 @@ struct DrillSetupView: View {
     private var setupCard: some View {
         SettingsCard(title: "Setup", symbol: "square.grid.2x2.fill", tint: style.accent) {
             ValueStepper("Stations", caption: "Separate groups of pods, each with its own players",
-                         value: $draft.stations, in: Limits.stations)
+                         value: layout(\.stations) { $0.setLayout(stations: $1) }, in: Limits.stations)
             Divider()
-            ValueStepper("Pods per station", value: $draft.podsPerStation,
+            ValueStepper("Pods per station", value: layout(\.podsPerStation) { $0.setLayout(podsPerStation: $1) },
                          in: (draft.engine == .focus ? Limits.focusMinPods : 1)...Limits.pods.upperBound)
             Divider()
             if draft.engine == .random {
-                ValueStepper("Players per station", caption: "Each player has their own colour",
-                             value: $draft.players, in: 1...min(Limits.players.upperBound, draft.podsPerStation))
+                ValueStepper("Players per station", caption: "Each player has their own name and colours",
+                             value: layout(\.players) { $0.setLayout(players: $1) }, in: 1...min(Limits.players.upperBound, draft.podsPerStation))
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -182,28 +181,6 @@ struct DrillSetupView: View {
                         .padding(.horizontal, 16)
                 }
             }
-        }
-    }
-
-    private var colorsCard: some View {
-        SettingsCard(title: draft.engine == .focus ? "Target Colours" : "Colours per Player",
-                     symbol: "paintpalette.fill", tint: style.accent) {
-            ForEach(0..<draft.playersPerStation, id: \.self) { player in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(draft.engine == .focus ? "Hit these" : draft.displayName(station: 0, index: player))
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Text(colorCountText(draft.playerColors[safe: player]?.count ?? 1))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    ColorSwatchPicker(selection: playerColors(player),
-                                      excluded: draft.engine == .focus ? Set(draft.distractingColors) : [])
-                }
-                if player < draft.playersPerStation - 1 { Divider() }
-            }
-            Text("With several colours, each light picks one of them at random.")
-                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -241,37 +218,59 @@ struct DrillSetupView: View {
                 Button {
                     controller.flash(assigned.enumerated().map { ($0.element, stationColor($0.offset / draft.podsPerStation)) })
                 } label: {
-                    Label("Identify", systemImage: "lightbulb.max.fill").frame(maxWidth: .infinity)
+                    Label("Identify", systemImage: "lightbulb.max.fill")
                 }
+                .buttonStyle(CardActionButtonStyle(tint: style.accent))
                 .disabled(assigned.isEmpty)
                 Button { editsPods = true } label: {
-                    Label("Edit Pods", systemImage: "list.number").frame(maxWidth: .infinity)
+                    Label("Edit Pods", systemImage: "list.number")
                 }
+                .buttonStyle(CardActionButtonStyle(tint: style.accent))
             }
-            .buttonStyle(.bordered)
-            .tint(style.accent)
-            .controlSize(.large)
         }
     }
 
     private var playersCard: some View {
-        SettingsCard(title: "Player Names", symbol: "person.2.fill", tint: style.accent) {
+        SettingsCard(title: draft.engine == .focus ? "Players & Target Colours" : "Players & Colours",
+                     symbol: "person.2.fill", tint: style.accent) {
             ForEach(0..<draft.stations, id: \.self) { station in
-                ForEach(0..<draft.playersPerStation, id: \.self) { player in
-                    HStack(spacing: 12) {
-                        Circle().fill(draft.colors(forPlayer: player).first?.swatch ?? .gray)
-                            .frame(width: 14, height: 14)
-                        TextField(draft.defaultPlayerName(station: station, index: player), text: nameBinding(station, player))
-                            .textInputAutocapitalization(.words)
-                            .submitLabel(.done)
-                        if draft.stations > 1 && draft.playersPerStation > 1 {
-                            Text("S\(station + 1)").font(.caption).foregroundStyle(.secondary)
-                        }
+                if draft.stations > 1 {
+                    HStack(spacing: 6) {
+                        GlowPod(color: stationColor(station), size: 18)
+                        Text("Station \(station + 1)").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
+                        Rectangle().fill(.quaternary).frame(height: 1)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.top, station == 0 ? 0 : 6)
+                }
+                ForEach(0..<draft.playersPerStation, id: \.self) { player in
+                    playerEditor(station: station, player: player)
                 }
             }
+            Text(draft.engine == .focus
+                 ? "Each player hits only pods in their colours. With several colours, each light picks one at random."
+                 : "Each player only catches pods in their colours. With several colours, each light picks one at random.")
+                .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private func playerEditor(station: Int, player: Int) -> some View {
+        let colors = draft.colors(station: station, index: player)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(colors.first?.swatch ?? .gray)
+                TextField(draft.defaultPlayerName(station: station, index: player), text: nameBinding(station, player))
+                    .font(.body.weight(.medium))
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                Text(colorCountText(colors.count)).font(.caption).foregroundStyle(.secondary)
+            }
+            ColorSwatchPicker(selection: colorBinding(station, player),
+                              excluded: draft.engine == .focus ? Set(draft.distractingColors) : [])
+        }
+        .padding(12)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: Theme.smallCorner, style: .continuous))
     }
 
     private func nameBinding(_ station: Int, _ player: Int) -> Binding<String> {
@@ -290,7 +289,7 @@ struct DrillSetupView: View {
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 Text("Distracting colours").font(.subheadline.weight(.medium))
-                ColorSwatchPicker(selection: $draft.distractingColors, excluded: Set(draft.colors(forPlayer: 0)))
+                ColorSwatchPicker(selection: $draft.distractingColors, excluded: Set(draft.playerColors.flatMap { $0 }))
             }
             Divider()
             Toggle(isOn: Binding(get: { draft.strikeOut != nil },
@@ -464,12 +463,15 @@ struct DrillSetupView: View {
     private enum DelayKind: Hashable { case none, fixed, random }
     private enum DurationKind: Hashable { case time, hits, both }
 
-    private func playerColors(_ player: Int) -> Binding<[PodColor]> {
-        Binding(get: { draft.colors(forPlayer: player) },
-                set: { colors in
-                    while draft.playerColors.count <= player { draft.playerColors.append([.default]) }
-                    draft.playerColors[player] = colors
-                })
+    private func colorBinding(_ station: Int, _ player: Int) -> Binding<[PodColor]> {
+        Binding(get: { draft.colors(station: station, index: player) },
+                set: { draft.setColors($0, station: station, index: player) })
+    }
+
+    /// Stepper binding for a layout value that keeps every player's colours and name.
+    private func layout(_ key: KeyPath<DrillDefinition, Int>,
+                        _ apply: @escaping (inout DrillDefinition, Int) -> Void) -> Binding<Int> {
+        Binding(get: { draft[keyPath: key] }, set: { apply(&draft, $0) })
     }
 
     private var delayKind: Binding<DelayKind> {

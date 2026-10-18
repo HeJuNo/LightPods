@@ -289,12 +289,48 @@ final class DrillSessionTests: XCTestCase {
         XCTAssertEqual(def.lightsOut, .hit)
 
         var random = DrillDefinition.random
-        random.players = 4
-        random.podsPerStation = 2
-        random.normalize()
+        random.setLayout(players: 4, podsPerStation: 2)
         XCTAssertEqual(random.players, 2)
         XCTAssertEqual(random.playerColors.count, 2)
         XCTAssertNotEqual(random.playerColors[0], random.playerColors[1])
+    }
+
+    func testColoursPerStationAndPlayer() {
+        var def = DrillDefinition.random
+        def.setLayout(stations: 2, players: 2, podsPerStation: 3)
+        XCTAssertEqual(def.playerColors.count, 4)
+        def.setColors([.red], station: 0, index: 0)
+        def.setColors([.green], station: 0, index: 1)
+        def.setColors([.yellow], station: 1, index: 0)
+        def.setColors([.pink], station: 1, index: 1)
+        def.setPlayerName("Ben", station: 1, index: 1)
+        let s = makeSession(def)
+        startRunning(s)
+        XCTAssertEqual(Set(pods.lit.filter { $0.key < 3 }.values), [.red, .green])
+        XCTAssertEqual(Set(pods.lit.filter { $0.key >= 3 }.values), [.yellow, .pink])
+        XCTAssertEqual(s.players.map(\.primaryColor), [.red, .green, .yellow, .pink])
+
+        // Adding a player keeps everyone's colours and names in place.
+        def.setLayout(players: 3)
+        XCTAssertEqual(def.colors(station: 1, index: 0), [.yellow])
+        XCTAssertEqual(def.colors(station: 1, index: 1), [.pink])
+        XCTAssertEqual(def.playerName(station: 1, index: 1), "Ben")
+        XCTAssertEqual(def.playerColors.count, 6)
+        // Removing a station drops its players.
+        def.setLayout(stations: 1)
+        XCTAssertEqual(def.playerColors.count, 3)
+        XCTAssertNil(def.playerNames)
+    }
+
+    func testOldDrillsWithSharedColoursStillWork() {
+        var def = DrillDefinition.random
+        def.stations = 2
+        def.players = 2
+        def.podsPerStation = 3
+        def.playerColors = [[.red], [.green]]   // old layout: per player, all stations
+        XCTAssertEqual(def.colors(station: 1, index: 1), [.green])
+        def.normalize()
+        XCTAssertEqual(def.playerColors, [[.red], [.green], [.red], [.green]])
     }
 
     func testPlayerNames() throws {

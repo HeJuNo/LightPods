@@ -103,7 +103,7 @@ public final class DrillSession {
         self.rng = rng
         self.countdownSeconds = countdown
         players = (0..<def.stations).flatMap { s in
-            (0..<def.playersPerStation).map { p in DrillPlayer(station: s, index: p, colors: def.colors(forPlayer: p)) }
+            (0..<def.playersPerStation).map { p in DrillPlayer(station: s, index: p, colors: def.colors(station: s, index: p)) }
         }
         stations = (0..<def.stations).map { s in
             let pods = Array(s * def.podsPerStation ..< (s + 1) * def.podsPerStation)
@@ -380,7 +380,7 @@ final class RandomStation: StationEngine {
         super.stop()
     }
 
-    private func colors(_ player: Int) -> [PodColor] { def.colors(forPlayer: player) }
+    private func colors(_ player: Int) -> [PodColor] { def.colors(station: station, index: player) }
 
     // Regular mode
 
@@ -506,7 +506,7 @@ final class FocusStation: StationEngine {
             let pod = free.remove(at: session.randomIndex(free.count))
             distractors.insert(pod)
         }
-        session.light(t, randomColor(def.colors(forPlayer: 0)), offOnHit: false)
+        session.light(t, randomColor(def.colors(station: station, index: 0)), offOnHit: false)
         for pod in distractors.sorted() {
             session.light(pod, randomColor(def.distractingColors), offOnHit: false)
         }

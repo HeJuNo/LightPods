@@ -50,7 +50,7 @@ struct DrillStyle {
             colors = [Color(red: 0.13, green: 0.36, blue: 1.0), Color(red: 0.42, green: 0.25, blue: 0.95)]
         default:
             // Custom drills take their first player's colour.
-            let base = drill.colors(forPlayer: 0).first?.swatch ?? .blue
+            let base = drill.colors(station: 0, index: 0).first?.swatch ?? .blue
             colors = [base, base.mix(with: .black, by: 0.35)]
         }
     }
@@ -295,6 +295,24 @@ struct ColorSwatchPicker: View {
             selection.removeFirst()
             selection.append(color)
         }
+    }
+}
+
+/// Equal-size secondary action used inside setting cards.
+struct CardActionButtonStyle: ButtonStyle {
+    let tint: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, minHeight: 46)
+            .foregroundStyle(tint)
+            .background(tint.opacity(configuration.isPressed ? 0.25 : 0.14),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .opacity(isEnabled ? 1 : 0.4)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
 }
 
